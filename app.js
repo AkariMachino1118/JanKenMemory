@@ -366,10 +366,10 @@ function renderRound() {
   } else if (!myId) {
     actionHtml = '<div class="status-msg">対戦を見学中です。他の人の端末からも入力できます。</div>';
   } else {
-    actionHtml = '<div class="status-msg">この対戦には参加していません。</div>';
+    actionHtml = '<div class="status-msg">この対戦には参加していません。参加するには、下のボタンで一度中止してから新しく対戦を始めてください。</div>';
   }
 
-  const cancelHtml = myId && session.participantIds.includes(myId)
+  const cancelHtml = myId
     ? '<button class="btn ghost small" id="btnCancel" style="margin-top:12px">この対戦を中止する</button>' : "";
 
   const logHtml = session.pitches && session.pitches.length
