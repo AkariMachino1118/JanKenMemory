@@ -6,42 +6,42 @@
 <title>ジャンケン帳</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Shippori+Mincho:wght@500;600;800&family=Zen+Kaku+Gothic+New:wght@400;500;700;900&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Mochiy+Pop+One&family=Zen+Kaku+Gothic+New:wght@400;500;700;900&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
 <style>
   :root{
     color-scheme: light;
-    --ground:#f6f1e3; --ground-2:#efe8d5; --surface:#fffdf6; --surface-2:#f9f3e3;
-    --ink:#221c12; --ink-soft:#5f5541; --muted:#948a72;
-    --line:rgba(34,28,18,0.13); --line-strong:rgba(34,28,18,0.24);
-    --accent:#a9762f; --accent-strong:#8a5e22; --accent-soft:rgba(169,118,47,0.14); --accent-ink:#ffffff;
-    --good:#0ca30c; --good-soft:rgba(12,163,12,0.13);
-    --bad:#c23b34; --bad-soft:rgba(194,59,52,0.13);
-    --p1:#2a78d6; --p2:#d1631f; --p3:#1a9a6d; --p4:#8a4ac2; --p5:#c2384f; --p6:#3a8f8f;
-    --shadow: 0 1px 2px rgba(34,28,18,0.06), 0 8px 20px -12px rgba(34,28,18,0.18);
+    --ground:#fff1f7; --ground-2:#ffe1ee; --surface:#ffffff; --surface-2:#fff5fa;
+    --ink:#241338; --ink-soft:#6b5580; --muted:#9c8bab;
+    --line:rgba(36,19,56,0.10); --line-strong:rgba(36,19,56,0.22);
+    --accent:#ff2d78; --accent-strong:#e0125f; --accent-soft:rgba(255,45,120,0.14); --accent-ink:#ffffff;
+    --good:#12c48b; --good-soft:rgba(18,196,139,0.14);
+    --bad:#ff4757; --bad-soft:rgba(255,71,87,0.14);
+    --p1:#3d7bff; --p2:#ff8a3d; --p3:#8b5cf6; --p4:#ffb400; --p5:#d6336c; --p6:#00b8d9;
+    --shadow: 0 2px 0 rgba(36,19,56,0.06), 0 10px 24px -14px rgba(255,45,120,0.35);
   }
   @media (prefers-color-scheme: dark){
     :root:not([data-theme="light"]){
       color-scheme: dark;
-      --ground:#181310; --ground-2:#1f1912; --surface:#221b14; --surface-2:#2a2118;
-      --ink:#f4ecd9; --ink-soft:#cabca3; --muted:#93876e;
-      --line:rgba(244,236,217,0.12); --line-strong:rgba(244,236,217,0.22);
-      --accent:#dfa858; --accent-strong:#efc07d; --accent-soft:rgba(223,168,88,0.16); --accent-ink:#231a0d;
-      --good:#3fc23f; --good-soft:rgba(63,194,63,0.16);
-      --bad:#e8756c; --bad-soft:rgba(232,117,108,0.16);
-      --p1:#5b9ce9; --p2:#e8873f; --p3:#33b98a; --p4:#af8ce0; --p5:#e8707f; --p6:#5cb8b8;
-      --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 10px 26px -14px rgba(0,0,0,0.6);
+      --ground:#150b22; --ground-2:#1d1030; --surface:#20122f; --surface-2:#2a1740;
+      --ink:#f5ecff; --ink-soft:#c9b8dc; --muted:#8f7aa3;
+      --line:rgba(245,236,255,0.12); --line-strong:rgba(245,236,255,0.24);
+      --accent:#ff5c9c; --accent-strong:#ff85b5; --accent-soft:rgba(255,92,156,0.18); --accent-ink:#2a0a1a;
+      --good:#3ddc97; --good-soft:rgba(61,220,151,0.18);
+      --bad:#ff6b81; --bad-soft:rgba(255,107,129,0.18);
+      --p1:#6c9dff; --p2:#ffab6b; --p3:#b794f6; --p4:#ffd166; --p5:#ff6fa8; --p6:#4dd9f0;
+      --shadow: 0 2px 0 rgba(0,0,0,0.3), 0 12px 28px -14px rgba(255,92,156,0.35);
     }
   }
   :root[data-theme="dark"]{
     color-scheme: dark;
-    --ground:#181310; --ground-2:#1f1912; --surface:#221b14; --surface-2:#2a2118;
-    --ink:#f4ecd9; --ink-soft:#cabca3; --muted:#93876e;
-    --line:rgba(244,236,217,0.12); --line-strong:rgba(244,236,217,0.22);
-    --accent:#dfa858; --accent-strong:#efc07d; --accent-soft:rgba(223,168,88,0.16); --accent-ink:#231a0d;
-    --good:#3fc23f; --good-soft:rgba(63,194,63,0.16);
-    --bad:#e8756c; --bad-soft:rgba(232,117,108,0.16);
-    --p1:#5b9ce9; --p2:#e8873f; --p3:#33b98a; --p4:#af8ce0; --p5:#e8707f; --p6:#5cb8b8;
-    --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 10px 26px -14px rgba(0,0,0,0.6);
+    --ground:#150b22; --ground-2:#1d1030; --surface:#20122f; --surface-2:#2a1740;
+    --ink:#f5ecff; --ink-soft:#c9b8dc; --muted:#8f7aa3;
+    --line:rgba(245,236,255,0.12); --line-strong:rgba(245,236,255,0.24);
+    --accent:#ff5c9c; --accent-strong:#ff85b5; --accent-soft:rgba(255,92,156,0.18); --accent-ink:#2a0a1a;
+    --good:#3ddc97; --good-soft:rgba(61,220,151,0.18);
+    --bad:#ff6b81; --bad-soft:rgba(255,107,129,0.18);
+    --p1:#6c9dff; --p2:#ffab6b; --p3:#b794f6; --p4:#ffd166; --p5:#ff6fa8; --p6:#4dd9f0;
+    --shadow: 0 2px 0 rgba(0,0,0,0.3), 0 12px 28px -14px rgba(255,92,156,0.35);
   }
   *{box-sizing:border-box;}
   html{background:var(--ground);}
@@ -51,28 +51,29 @@
   header.top{padding:30px 18px 20px;background:radial-gradient(120% 140% at 15% -10%, var(--accent-soft), transparent 55%), var(--ground);border-bottom:1px solid var(--line);}
   .eyebrow{font-family:"JetBrains Mono",monospace;font-size:11.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent-strong);font-weight:700;display:flex;align-items:center;gap:8px;margin:0 0 10px;}
   .eyebrow::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--accent);display:inline-block;}
-  h1.title{font-family:"Shippori Mincho",serif;font-weight:800;font-size:clamp(26px,7vw,34px);margin:0 0 10px;letter-spacing:.02em;}
+  h1.title{font-family:"Mochiy Pop One","Zen Kaku Gothic New",sans-serif;font-weight:800;font-size:clamp(26px,7vw,34px);margin:0 0 10px;letter-spacing:.02em;}
   .whoami{display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:13.5px;color:var(--ink-soft);flex-wrap:wrap;}
   .whoami b{color:var(--ink);}
   .whoami .switch{font-size:12px;color:var(--accent-strong);cursor:pointer;text-decoration:underline;background:none;border:none;font-family:inherit;padding:0;}
   section{margin-top:30px;}
   .sec-head{display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-bottom:12px;}
-  h2{font-family:"Shippori Mincho",serif;font-size:18px;font-weight:600;margin:0;letter-spacing:.01em;}
+  h2{font-family:"Mochiy Pop One","Zen Kaku Gothic New",sans-serif;font-size:18px;font-weight:600;margin:0;letter-spacing:.01em;}
   .sec-note{font-size:11.5px;color:var(--muted);white-space:nowrap;}
-  .card{background:var(--surface);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:20px;box-shadow:var(--shadow);}
   .pad{padding:16px;}
-  button.btn{font-family:inherit;font-size:14px;font-weight:700;border:none;border-radius:10px;padding:11px 18px;cursor:pointer;background:var(--accent);color:var(--accent-ink);}
-  button.btn:active{transform:translateY(1px);}
-  button.btn.ghost{background:var(--surface-2);color:var(--ink);border:1px solid var(--line-strong);}
-  button.btn.small{padding:6px 12px;font-size:12.5px;border-radius:8px;}
+  button.btn{font-family:inherit;font-size:14px;font-weight:700;border:none;border-radius:14px;padding:11px 18px;cursor:pointer;background:var(--accent);color:var(--accent-ink);transition:transform .1s ease;}
+  button.btn:active{transform:translateY(1px) scale(.98);}
+  button.btn.ghost{background:var(--surface-2);color:var(--ink);border:2px solid var(--line-strong);}
+  button.btn.ghost.on{background:var(--accent);color:var(--accent-ink);border-color:transparent;}
+  button.btn.small{padding:6px 12px;font-size:12.5px;border-radius:10px;}
   button.btn:disabled{opacity:.45;cursor:default;}
-  input.field{font-family:inherit;font-size:15px;padding:10px 12px;border-radius:10px;border:1px solid var(--line-strong);background:var(--surface);color:var(--ink);width:100%;}
+  input.field{font-family:inherit;font-size:15px;padding:10px 12px;border-radius:12px;border:2px solid var(--line-strong);background:var(--surface);color:var(--ink);width:100%;}
   label.chk{display:flex;align-items:center;gap:8px;font-size:14px;padding:6px 2px;}
 
   /* identity gate */
   #gate{position:fixed;inset:0;background:var(--ground);z-index:50;display:flex;align-items:center;justify-content:center;padding:20px;}
   #gate .box{max-width:380px;width:100%;}
-  #gate h1{font-family:"Shippori Mincho",serif;font-size:26px;margin:0 0 6px;}
+  #gate h1{font-family:"Mochiy Pop One","Zen Kaku Gothic New",sans-serif;font-size:26px;margin:0 0 6px;}
   #gate p.lead{color:var(--ink-soft);font-size:13.5px;margin:0 0 20px;}
   #gate .tabs{display:flex;gap:8px;margin-bottom:14px;}
   #gate .tabs button{flex:1;padding:9px;border-radius:9px;border:1px solid var(--line-strong);background:var(--surface-2);color:var(--ink-soft);font-family:inherit;font-weight:700;font-size:13px;cursor:pointer;}
