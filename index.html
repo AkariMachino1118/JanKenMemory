@@ -198,10 +198,11 @@
     </div>
     <div id="panelJoin" class="panel" style="display:none">
       <input id="joinName" class="field" placeholder="表示名（例: 田中）" autocomplete="off">
-      <button id="btnJoin" class="btn">参加してIDを発行</button>
+      <input id="joinId" class="field" placeholder="希望するID（数字。例: 3948）" autocomplete="off" inputmode="numeric" pattern="[0-9]*">
+      <button id="btnJoin" class="btn">このIDで参加する</button>
       <div class="err" id="joinErr"></div>
       <div class="code-reveal" id="codeReveal" style="display:none">
-        <div class="note">あなたのIDです。忘れずにメモしてください</div>
+        <div class="note">登録できました。あなたのIDです</div>
         <div class="code" id="codeRevealVal"></div>
         <div class="note">次回からこのIDでログインできます</div>
       </div>

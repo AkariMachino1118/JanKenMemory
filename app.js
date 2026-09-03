@@ -50,10 +50,6 @@ async function trySeed() {
   }
 }
 
-function genCode() {
-  return String(Math.floor(100000 + Math.random() * 900000));
-}
-
 // ---------- auth ----------
 onAuthStateChanged(auth, (user) => {
   if (user) boot();
@@ -119,22 +115,34 @@ document.getElementById("btnLogin").onclick = () => {
   renderAll();
 };
 
+async function registerMember(id, name) {
+  await runTransaction(db, async (tx) => {
+    const existing = await tx.get(doc(membersCol, id));
+    if (existing.exists()) throw new Error("id_taken");
+    tx.set(doc(membersCol, id), {
+      name, active: true, points: 0, games: 0, losses: 0, createdAt: serverTimestamp(),
+    });
+  });
+}
+
 document.getElementById("btnJoin").onclick = async () => {
   const name = document.getElementById("joinName").value.trim();
+  const id = document.getElementById("joinId").value.trim();
   const err = document.getElementById("joinErr");
   if (!name) { err.textContent = "表示名を入力してください"; return; }
+  if (!/^[0-9]{1,10}$/.test(id)) { err.textContent = "IDは数字で入力してください"; return; }
   err.textContent = "";
-  let code = genCode();
-  let tries = 0;
-  while (members[code] && tries < 5) { code = genCode(); tries++; }
-  await setDoc(doc(membersCol, code), {
-    name, active: true, points: 0, games: 0, losses: 0, createdAt: serverTimestamp(),
-  });
-  myId = code;
-  localStorage.setItem("jankenMemberId", code);
+  try {
+    await registerMember(id, name);
+  } catch (e) {
+    err.textContent = e.message === "id_taken" ? "そのIDはすでに使われています。別の番号にしてください" : "登録に失敗しました";
+    return;
+  }
+  myId = id;
+  localStorage.setItem("jankenMemberId", id);
   viewOnly = false;
   document.getElementById("codeReveal").style.display = "block";
-  document.getElementById("codeRevealVal").textContent = code;
+  document.getElementById("codeRevealVal").textContent = id;
 };
 
 document.getElementById("btnViewOnly").onclick = () => {
@@ -190,7 +198,8 @@ function renderMembers() {
   });
   if (memberOrder.length === 0) html = '<div class="empty">まだメンバーがいません</div>';
   html += `<div class="add-member">
-    <input class="field" id="newMemberName" placeholder="新しいメンバーの表示名">
+    <input class="field" id="newMemberName" placeholder="表示名">
+    <input class="field" id="newMemberId" placeholder="ID（数字）" inputmode="numeric" pattern="[0-9]*" style="max-width:110px">
     <button class="btn" id="btnAddMember">追加</button>
   </div>`;
   el.innerHTML = html;
@@ -201,17 +210,21 @@ function renderMembers() {
     };
   });
   document.getElementById("btnAddMember").onclick = async () => {
-    const input = document.getElementById("newMemberName");
-    const name = input.value.trim();
+    const nameInput = document.getElementById("newMemberName");
+    const idInput = document.getElementById("newMemberId");
+    const name = nameInput.value.trim();
+    const id = idInput.value.trim();
     if (!name) return;
-    let code = genCode();
-    let tries = 0;
-    while (members[code] && tries < 5) { code = genCode(); tries++; }
-    await setDoc(doc(membersCol, code), {
-      name, active: true, points: 0, games: 0, losses: 0, createdAt: serverTimestamp(),
-    });
-    input.value = "";
-    alert(`「${name}」さんのIDは ${code} です。本人に伝えてください。`);
+    if (!/^[0-9]{1,10}$/.test(id)) { alert("IDは数字で入力してください"); return; }
+    try {
+      await registerMember(id, name);
+    } catch (e) {
+      alert(e.message === "id_taken" ? "そのIDはすでに使われています" : "登録に失敗しました");
+      return;
+    }
+    nameInput.value = "";
+    idInput.value = "";
+    alert(`「${name}」さんのIDは ${id} です。本人に伝えてください。`);
   };
 }
 
