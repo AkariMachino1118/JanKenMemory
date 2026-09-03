@@ -195,6 +195,21 @@ document.getElementById("btnJoin").onclick = async () => {
   document.getElementById("codeRevealVal").textContent = id;
 };
 
+document.getElementById("btnGuest").onclick = async () => {
+  let id = String(Math.floor(100000 + Math.random() * 900000));
+  try {
+    await registerMember(id, "ゲスト");
+  } catch (e) {
+    id = String(Math.floor(100000 + Math.random() * 900000));
+    await registerMember(id, "ゲスト");
+  }
+  myId = id;
+  localStorage.setItem("jankenMemberId", id);
+  viewOnly = false;
+  renderGate();
+  renderAll();
+};
+
 document.getElementById("btnViewOnly").onclick = () => {
   viewOnly = true;
   document.getElementById("gate").style.display = "none";

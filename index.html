@@ -75,7 +75,7 @@
   #gate .box{max-width:380px;width:100%;}
   #gate h1{font-family:"Mochiy Pop One","Zen Kaku Gothic New",sans-serif;font-size:26px;margin:0 0 6px;}
   #gate p.lead{color:var(--ink-soft);font-size:13.5px;margin:0 0 20px;}
-  #gate .tabs{display:flex;gap:8px;margin-bottom:14px;}
+  #gate .tabs{display:flex;gap:8px;margin:18px 0 14px;}
   #gate .tabs button{flex:1;padding:9px;border-radius:9px;border:1px solid var(--line-strong);background:var(--surface-2);color:var(--ink-soft);font-family:inherit;font-weight:700;font-size:13px;cursor:pointer;}
   #gate .tabs button.on{background:var(--accent);color:var(--accent-ink);border-color:transparent;}
   #gate .panel{display:flex;flex-direction:column;gap:10px;}
@@ -191,7 +191,6 @@
 <div id="gate">
   <div class="box card pad">
     <h1>ジャンケン帳</h1>
-    <p class="lead">友達内だけのじゃんけん結果ノートです。自分のIDでログインしてください。</p>
     <div class="tabs">
       <button id="tabLogin" class="on">IDでログイン</button>
       <button id="tabJoin">はじめて参加する</button>
@@ -212,7 +211,11 @@
         <div class="note">次回からこのIDでログインできます</div>
       </div>
     </div>
-    <div class="viewonly"><button id="btnViewOnly" class="switch" style="background:none;border:none;color:var(--accent-strong);text-decoration:underline;cursor:pointer;font-family:inherit;font-size:12.5px;">ログインせず閲覧のみで見る</button></div>
+    <div class="viewonly">
+      <button id="btnGuest" class="switch" style="background:none;border:none;color:var(--accent-strong);text-decoration:underline;cursor:pointer;font-family:inherit;font-size:12.5px;">ゲストとして参加する（名前登録なし）</button>
+      <span style="color:var(--muted);margin:0 6px;">・</span>
+      <button id="btnViewOnly" class="switch" style="background:none;border:none;color:var(--accent-strong);text-decoration:underline;cursor:pointer;font-family:inherit;font-size:12.5px;">ログインせず閲覧のみで見る</button>
+    </div>
   </div>
 </div>
 
@@ -266,6 +269,6 @@
   <footer>Firebase上で動作する共有ジャンケン帳 ・ データはこの友達グループだけで共有されます</footer>
 </div>
 
-<script type="module" src="./app.js?v=7"></script>
+<script type="module" src="./app.js?v=8"></script>
 </body>
 </html>
