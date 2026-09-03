@@ -12,8 +12,10 @@ const db = getFirestore(app);
 
 const membersCol = collection(db, "members");
 const recordsCol = collection(db, "records");
+const seasonsCol = collection(db, "seasons");
 const sessionRef = doc(db, "session", "current");
 const seedRef = doc(db, "meta", "seed");
+const seasonMetaRef = doc(db, "meta", "season");
 
 const PLAYER_COLORS = ["--p1", "--p2", "--p3", "--p4", "--p5", "--p6"];
 const HAND_ORDER = ["グー", "チョキ", "パー"];
@@ -25,6 +27,10 @@ let members = {};     // id -> data
 let memberOrder = []; // ids sorted by createdAt
 let records = [];     // array of {id, ...data}
 let session = null;   // current session doc data, or null
+let seasons = {};        // id(string) -> {label, startedAt}
+let currentSeason = 1;   // the season new rounds are recorded into
+let selectedSeason = 1;    // the season currently being viewed (defaults to currentSeason)
+let seasonMetaLoaded = false;
 
 // ---------- seed (embedded, only used once if the store is empty) ----------
 const SEED = {"members":[{"id":"2107","name":"上田","points":15,"games":41,"losses":10},{"id":"2111","name":"小林","points":-11,"games":35,"losses":17},{"id":"2152","name":"吉村","points":-4,"games":42,"losses":18}],"records":[{"dateISO":"2026-03-18","mode":"男気モード","participantIds":["2107","2111","2152"],"hands":{"2107":"グー","2111":"パー","2152":"チョキ"},"loserId":"2111","streakText":null,"pitches":[{"hands":{"2107":"グー","2111":"グー","2152":"チョキ"},"result":"勝ち抜け発生"},{"hands":{"2107":"グー","2111":"パー","2152":"チョキ(勝)"},"result":"最終決着"}]},{"dateISO":"2026-03-19","mode":"通常モード","participantIds":["2111","2152"],"hands":{"2107":"不参加","2111":"パー","2152":"チョキ"},"loserId":"2111","streakText":"小林2連敗","pitches":[{"hands":{"2107":"不参加","2111":"パー","2152":"チョキ"},"result":"最終決着"}]},{"dateISO":"2026-03-23","mode":"男気モード","participantIds":["2107","2111"],"hands":{"2107":"グー","2111":"パー","2152":"不参加"},"loserId":"2111","streakText":"小林3連敗","pitches":[{"hands":{"2107":"グー","2111":"グー","2152":"チョキ"},"result":"最終決着"},{"hands":{"2107":"グー","2111":"パー","2152":"不参加"},"result":"最終決着"}]},{"dateISO":"2026-03-23","mode":"男気モード","participantIds":["2107","2111"],"hands":{"2107":"グー","2111":"パー","2152":"不参加"},"loserId":"2111","streakText":"小林4連敗","pitches":[{"hands":{"2107":"グー","2111":"パー","2152":"不参加"},"result":"最終決着"}]},{"dateISO":"2026-03-24","mode":"男気モード","participantIds":["2107","2111","2152"],"hands":{"2107":"グー","2111":"グー","2152":"パー"},"loserId":"2152","streakText":null,"pitches":[{"hands":{"2107":"グー","2111":"パー","2152":"パー"},"result":"勝ち抜け発生"},{"hands":{"2107":"グー(勝)","2111":"グー","2152":"グー"},"result":"あいこ"},{"hands":{"2107":"グー(勝)","2111":"グー","2152":"パー"},"result":"最終決着"}]},{"dateISO":"2026-03-24","mode":"男気モード","participantIds":["2107","2111","2152"],"hands":{"2107":"パー","2111":"グー","2152":"グー"},"loserId":"2107","streakText":null,"pitches":[{"hands":{"2107":"パー","2111":"グー","2152":"パー"},"result":"勝ち抜け発生"},{"hands":{"2107":"パー","2111":"グー(勝)","2152":"パー"},"result":"あいこ"},{"hands":{"2107":"パー","2111":"グー(勝)","2152":"パー"},"result":"あいこ"},{"hands":{"2107":"パー","2111":"グー(勝)","2152":"グー"},"result":"最終決着"}]},{"dateISO":"2026-03-25","mode":"男気モード","participantIds":["2107","2111","2152"],"hands":{"2107":"グー","2111":"グー","2152":"パー"},"loserId":"2152","streakText":null,"pitches":[{"hands":{"2107":"チョキ","2111":"パー","2152":"グー"},"result":"あいこ"},{"hands":{"2107":"グー","2111":"グー","2152":"パー"},"result":"最終決着"}]},{"dateISO":"2026-03-26","mode":"男気モード","participantIds":["2107","2111"],"hands":{"2107":"チョキ","2111":"グー","2152":"不参加"},"loserId":"2111","streakText":null,"pitches":[{"hands":{"2107":"パー","2111":"パー","2152":"不参加"},"result":"あいこ"},{"hands":{"2107":"チョキ","2111":"グー","2152":"不参加"},"result":"最終決着"}]},{"dateISO":"2026-03-27","mode":"男気モード","participantIds":["2107","2111","2152"],"hands":{"2107":"チョキ","2111":"グー","2152":"パー"},"loserId":"2152","streakText":"吉村2連敗","pitches":[{"hands":{"2107":"チョキ","2111":"グー","2152":"グー"},"result":"勝ち抜け発生"},{"hands":{"2107":"チョキ(勝)","2111":"グー","2152":"パー"},"result":"最終決着"}]},{"dateISO":"2026-03-30","mode":"男気モード","participantIds":["2107","2111","2152"],"hands":{"2107":"グー","2111":"パー","2152":"チョキ"},"loserId":"2111","streakText":null,"pitches":[{"hands":{"2107":"グー","2111":"グー","2152":"グー"},"result":"あいこ"},{"hands":{"2107":"グー","2111":"グー","2152":"チョキ"},"result":"勝ち抜け発生"},{"hands":{"2107":"グー","2111":"パー","2152":"チョキ(勝)"},"result":"最終決着"}]},{"dateISO":"2026-03-31","mode":"男気モード","participantIds":["2107","2111","2152"],"hands":{"2107":"チョキ","2111":"パー","2152":"チョキ"},"loserId":"2107","streakText":null,"pitches":[{"hands":{"2107":"グー","2111":"チョキ","2152":"パー"},"result":"あいこ"},{"hands":{"2107":"チョキ","2111":"パー","2152":"グー"},"result":"あいこ"},{"hands":{"2107":"グー","2111":"グー","2152":"チョキ"},"result":"勝ち抜け発生"},{"hands":{"2107":"チョキ","2111":"チョキ","2152":"チョキ(勝)"},"result":"あいこ"},{"hands":{"2107":"チョキ","2111":"チョキ","2152":"チョキ(勝)"},"result":"あいこ"},{"hands":{"2107":"チョキ","2111":"パー","2152":"チョキ(勝)"},"result":"最終決着"}]},{"dateISO":"2026-04-03","mode":"通常モード","participantIds":["2107","2152"],"hands":{"2107":"パー","2111":"不参加","2152":"グー"},"loserId":"2152","streakText":null,"pitches":[{"hands":{"2107":"パー","2111":"不参加","2152":"グー"},"result":"最終決着"}]},{"dateISO":"2026-04-03","mode":"通常モード","participantIds":["2107","2111","2152"],"hands":{"2107":"パー","2111":"グー","2152":"グー"},"loserId":"2111","streakText":null,"pitches":[{"hands":{"2107":"チョキ","2111":"チョキ","2152":"グー"},"result":"勝ち抜け発生"},{"hands":{"2107":"パー","2111":"グー","2152":"グー(勝)"},"result":"最終決着"}]},{"dateISO":"2026-04-06","mode":"通常モード","participantIds":["2107","2152"],"hands":{"2107":"グー","2111":"不参加","2152":"チョキ"},"loserId":"2152","streakText":null,"pitches":[{"hands":{"2107":"グー","2111":"不参加","2152":"チョキ"},"result":"最終決着"}]},{"dateISO":"2026-04-07","mode":"通常モード","participantIds":["2107","2152"],"hands":{"2107":"パー","2111":"不参加","2152":"グー"},"loserId":"2152","streakText":"吉村2連敗","pitches":[{"hands":{"2107":"パー","2111":"不参加","2152":"パー"},"result":"あいこ"},{"hands":{"2107":"パー","2111":"不参加","2152":"グー"},"result":"最終決着"}]},{"dateISO":"2026-04-07","mode":"通常モード","participantIds":["2107","2111","2152"],"hands":{"2107":"パー","2111":"パー","2152":"グー"},"loserId":"2152","streakText":"吉村3連敗","pitches":[{"hands":{"2107":"チョキ","2111":"グー","2152":"パー"},"result":"あいこ"},{"hands":{"2107":"パー","2111":"パー","2152":"グー"},"result":"最終決着"}]},{"dateISO":"2026-04-09","mode":"通常モード","participantIds":["2107","2152"],"hands":{"2107":"チョキ","2111":"不参加","2152":"パー"},"loserId":"2152","streakText":"吉村4連敗","pitches":[{"hands":{"2107":"チョキ","2111":"不参加","2152":"パー"},"result":"最終決着"}]},{"dateISO":"2026-04-09","mode":"通常モード","participantIds":["2107","2111","2152"],"hands":{"2107":"グー","2111":"チョキ","2152":"グー"},"loserId":"2111","streakText":null,"pitches":[{"hands":{"2107":"グー","2111":"グー","2152":"チョキ"},"result":"最終決着"},{"hands":{"2107":"グー","2111":"チョキ","2152":"グー"},"result":"最終決着"}]},{"dateISO":"2026-04-10","mode":"通常モード","participantIds":["2107","2111","2152"],"hands":{"2107":"グー","2111":"グー","2152":"チョキ"},"loserId":"2152","streakText":null,"pitches":[{"hands":{"2107":"チョキ","2111":"パー","2152":"チョキ"},"result":"最終決着"},{"hands":{"2107":"グー","2111":"グー","2152":"チョキ"},"result":"最終決着"}]},{"dateISO":"2026-04-10","mode":"通常モード","participantIds":["2107","2111","2152"],"hands":{"2107":"チョキ","2111":"パー","2152":"チョキ"},"loserId":"2111","streakText":null,"pitches":[{"hands":{"2107":"チョキ","2111":"パー","2152":"チョキ"},"result":"最終決着"}]},{"dateISO":"2026-04-13","mode":"通常モード","participantIds":["2107","2111","2152"],"hands":{"2107":"グー","2111":"チョキ","2152":"パー"},"loserId":"2107","streakText":null,"pitches":[{"hands":{"2107":"パー","2111":"チョキ","2152":"パー"},"result":"勝ち抜け発生"},{"hands":{"2107":"グー","2111":"チョキ(勝)","2152":"パー"},"result":"最終決着"}]},{"dateISO":"2026-04-14","mode":"通常モード","participantIds":["2111","2152"],"hands":{"2107":"不参加","2111":"パー","2152":"チョキ"},"loserId":"2111","streakText":null,"pitches":[{"hands":{"2107":"グー","2111":"チョキ","2152":"グー"},"result":"最終決着"},{"hands":{"2107":"不参加","2111":"パー","2152":"チョキ"},"result":"最終決着"}]},{"dateISO":"2026-04-15","mode":"通常モード","participantIds":["2107","2111","2152"],"hands":{"2107":"グー","2111":"パー","2152":"パー"},"loserId":"2107","streakText":null,"pitches":[{"hands":{"2107":"グー","2111":"パー","2152":"パー"},"result":"最終決着"}]},{"dateISO":"2026-04-20","mode":"通常モード","participantIds":["2107","2111","2152"],"hands":{"2107":"パー","2111":"グー","2152":"パー"},"loserId":"2111","streakText":null,"pitches":[{"hands":{"2107":"パー","2111":"グー","2152":"グー"},"result":"勝ち抜け発生"},{"hands":{"2107":"パー(勝)","2111":"パー","2152":"パー"},"result":"あいこ"},{"hands":{"2107":"パー(勝)","2111":"チョキ","2152":"チョキ"},"result":"あいこ"},{"hands":{"2107":"パー(勝)","2111":"グー","2152":"パー"},"result":"最終決着"}]},{"dateISO":"2026-04-21","mode":"通常モード","participantIds":["2107","2111","2152"],"hands":{"2107":"グー","2111":"パー","2152":"パー"},"loserId":"2107","streakText":null,"pitches":[{"hands":{"2107":"グー","2111":"パー","2152":"パー"},"result":"最終決着"}]},{"dateISO":"2026-04-23","mode":"通常モード","participantIds":["2107","2111","2152"],"hands":{"2107":"チョキ","2111":"グー","2152":"チョキ"},"loserId":"2107","streakText":"上田2連敗","pitches":[{"hands":{"2107":"パー","2111":"グー","2152":"チョキ"},"result":"あいこ"},{"hands":{"2107":"パー","2111":"パー","2152":"チョキ"},"result":"勝ち抜け発生"},{"hands":{"2107":"パー","2111":"パー","2152":"チョキ(勝)"},"result":"あいこ"},{"hands":{"2107":"チョキ","2111":"グー","2152":"チョキ(勝)"},"result":"最終決着"}]},{"dateISO":"2026-04-24","mode":"通常モード","participantIds":["2107","2111","2152"],"hands":{"2107":"パー","2111":"チョキ","2152":"グー"},"loserId":"2111","streakText":null,"pitches":[{"hands":{"2107":"グー","2111":"グー","2152":"グー"},"result":"あいこ"},{"hands":{"2107":"パー","2111":"グー","2152":"グー"},"result":"勝ち抜け発生"},{"hands":{"2107":"パー(勝)","2111":"チョキ","2152":"グー"},"result":"最終決着"}]},{"dateISO":"2026-04-27","mode":"通常モード","participantIds":["2107","2111","2152"],"hands":{"2107":"グー","2111":"グー","2152":"チョキ"},"loserId":"2152","streakText":null,"pitches":[{"hands":{"2107":"グー","2111":"チョキ","2152":"パー"},"result":"あいこ"},{"hands":{"2107":"チョキ","2111":"グー","2152":"チョキ"},"result":"勝ち抜け発生"},{"hands":{"2107":"グー","2111":"グー(勝)","2152":"チョキ"},"result":"最終決着"}]},{"dateISO":"2026-04-28","mode":"通常モード","participantIds":["2107","2152"],"hands":{"2107":"パー","2111":"不参加","2152":"チョキ"},"loserId":"2107","streakText":null,"pitches":[{"hands":{"2107":"チョキ","2111":"不参加","2152":"チョキ"},"result":"あいこ"},{"hands":{"2107":"パー","2111":"不参加","2152":"パー"},"result":"あいこ"},{"hands":{"2107":"チョキ","2111":"不参加","2152":"チョキ"},"result":"あいこ"},{"hands":{"2107":"パー","2111":"不参加","2152":"チョキ"},"result":"最終決着"}]},{"dateISO":"2026-05-01","mode":"通常モード","participantIds":["2107","2152"],"hands":{"2107":"パー","2111":"不参加","2152":"グー"},"loserId":"2152","streakText":null,"pitches":[{"hands":{"2107":"パー","2111":"不参加","2152":"パー"},"result":"あいこ"},{"hands":{"2107":"パー","2111":"不参加","2152":"グー"},"result":"最終決着"}]},{"dateISO":"2026-05-07","mode":"男気モード","participantIds":["2111","2152"],"hands":{"2107":"不参加","2111":"グー","2152":"パー"},"loserId":"2152","streakText":"吉村2連敗","pitches":[{"hands":{"2107":"不参加","2111":"チョキ","2152":"チョキ"},"result":"あいこ"},{"hands":{"2107":"不参加","2111":"グー","2152":"パー"},"result":"最終決着"}]},{"dateISO":"2026-05-08","mode":"男気モード","participantIds":["2107","2111","2152"],"hands":{"2107":"グー","2111":"パー","2152":"パー"},"loserId":"2111","streakText":null,"pitches":[{"hands":{"2107":"チョキ","2111":"チョキ","2152":"パー"},"result":"勝ち抜け発生"},{"hands":{"2107":"グー","2111":"パー","2152":"パー(勝)"},"result":"最終決着"}]},{"dateISO":"2026-05-11","mode":"男気モード","participantIds":["2107","2111","2152"],"hands":{"2107":"グー","2111":"パー","2152":"パー"},"loserId":"2111","streakText":"小林2連敗","pitches":[{"hands":{"2107":"チョキ","2111":"チョキ","2152":"パー"},"result":"勝ち抜け発生"},{"hands":{"2107":"グー","2111":"パー","2152":"パー(勝)"},"result":"最終決着"}]},{"dateISO":"2026-05-12","mode":"男気モード","participantIds":["2107","2152"],"hands":{"2107":"パー","2111":"不参加","2152":"グー"},"loserId":"2107","streakText":null,"pitches":[{"hands":{"2107":"チョキ","2111":"不参加","2152":"チョキ"},"result":"あいこ"},{"hands":{"2107":"パー","2111":"不参加","2152":"グー"},"result":"最終決着"}]},{"dateISO":"2026-05-13","mode":"男気モード","participantIds":["2107","2111","2152"],"hands":{"2107":"グー","2111":"パー","2152":"グー"},"loserId":"2111","streakText":"小林3連敗","pitches":[{"hands":{"2107":"グー","2111":"グー","2152":"グー"},"result":"あいこ"},{"hands":{"2107":"グー","2111":"パー","2152":"グー"},"result":"最終決着"}]},{"dateISO":"2026-05-14","mode":"男気モード","participantIds":["2107","2152"],"hands":{"2107":"グー","2111":"不参加","2152":"パー"},"loserId":"2152","streakText":null,"pitches":[{"hands":{"2107":"グー","2111":"不参加","2152":"パー"},"result":"最終決着"}]},{"dateISO":"2026-05-18","mode":"男気モード","participantIds":["2107","2111","2152"],"hands":{"2107":"グー","2111":"パー","2152":"グー"},"loserId":"2111","streakText":"小林4連敗","pitches":[{"hands":{"2107":"グー","2111":"パー","2152":"グー"},"result":"最終決着"}]},{"dateISO":"2026-05-20","mode":"男気モード","participantIds":["2107","2111","2152"],"hands":{"2107":"パー","2111":"パー","2152":"チョキ"},"loserId":"2152","streakText":null,"pitches":[{"hands":{"2107":"パー","2111":"パー","2152":"チョキ"},"result":"最終決着"}]},{"dateISO":"2026-05-22","mode":"男気モード","participantIds":["2107","2152"],"hands":{"2107":"パー","2111":"不参加","2152":"グー"},"loserId":"2107","streakText":null,"pitches":[{"hands":{"2107":"パー","2111":"不参加","2152":"グー"},"result":"最終決着"}]},{"dateISO":"2026-05-25","mode":"男気モード","participantIds":["2111","2152"],"hands":{"2107":"不参加","2111":"パー","2152":"チョキ"},"loserId":"2152","streakText":null,"pitches":[{"hands":{"2107":"不参加","2111":"パー","2152":"パー"},"result":"あいこ"},{"hands":{"2107":"不参加","2111":"パー","2152":"パー"},"result":"あいこ"},{"hands":{"2107":"不参加","2111":"パー","2152":"チョキ"},"result":"最終決着"}]},{"dateISO":"2026-05-29","mode":"男気モード","participantIds":["2107","2111","2152"],"hands":{"2107":"パー","2111":"パー","2152":"チョキ"},"loserId":"2152","streakText":"吉村2連敗","pitches":[{"hands":{"2107":"パー","2111":"グー","2152":"チョキ"},"result":"あいこ"},{"hands":{"2107":"パー","2111":"パー","2152":"チョキ"},"result":"最終決着"}]},{"dateISO":"2026-05-29","mode":"男気モード","participantIds":["2107","2111","2152"],"hands":{"2107":"パー","2111":"パー","2152":"チョキ"},"loserId":"2152","streakText":"吉村3連敗","pitches":[{"hands":{"2107":"パー","2111":"パー","2152":"チョキ"},"result":"最終決着"}]},{"dateISO":"2026-06-01","mode":"通常モード","participantIds":["2107","2111","2152"],"hands":{"2107":"パー","2111":"グー","2152":"グー"},"loserId":"2152","streakText":"吉村4連敗","pitches":[{"hands":{"2107":"チョキ","2111":"グー","2152":"チョキ"},"result":"勝ち抜け発生"},{"hands":{"2107":"パー","2111":"グー(勝)","2152":"グー"},"result":"最終決着"}]},{"dateISO":"2026-06-05","mode":"通常モード","participantIds":["2107","2111","2152"],"hands":{"2107":"チョキ","2111":"パー","2152":"チョキ"},"loserId":"2111","streakText":null,"pitches":[{"hands":{"2107":"チョキ","2111":"パー","2152":"チョキ"},"result":"最終決着"}]},{"dateISO":"2026-06-10","mode":"通常モード","participantIds":["2107","2152"],"hands":{"2107":"グー","2111":"不参加","2152":"パー"},"loserId":"2107","streakText":null,"pitches":[{"hands":{"2107":"グー","2111":"不参加","2152":"パー"},"result":"最終決着"}]}]};
@@ -85,6 +91,50 @@ function boot() {
     maybeResolve();
     renderRound();
   });
+  onSnapshot(seasonsCol, (snap) => {
+    seasons = {};
+    snap.forEach((d) => { seasons[d.id] = d.data(); });
+    renderSeason();
+  });
+  onSnapshot(seasonMetaRef, (snap) => {
+    currentSeason = snap.exists() ? (snap.data().current || 1) : 1;
+    if (!seasonMetaLoaded) { selectedSeason = currentSeason; seasonMetaLoaded = true; }
+    renderSeason();
+    renderAll();
+  });
+}
+
+function seasonLabel(id) {
+  return seasons[String(id)]?.label || `シーズン${id}`;
+}
+
+function renderSeason() {
+  const el = document.getElementById("season");
+  const maxKnown = Math.max(currentSeason, ...Object.keys(seasons).map(Number), 1);
+  let chips = "";
+  for (let s = 1; s <= maxKnown; s++) {
+    chips += `<button class="btn ghost small ${s === selectedSeason ? "on" : ""}" data-season="${s}" style="${s === selectedSeason ? "background:var(--accent);color:var(--accent-ink);border-color:transparent;" : ""}">${esc(seasonLabel(s))}</button>`;
+  }
+  el.innerHTML = `
+    <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px">${chips}</div>
+    <div class="sec-note" style="margin-bottom:10px">対戦は常に現在のシーズン（${esc(seasonLabel(currentSeason))}）に記録されます</div>
+    <button class="btn ghost small" id="btnNewSeason">＋ 新しいシーズンを開始する</button>`;
+  el.querySelectorAll("[data-season]").forEach((b) => {
+    b.onclick = () => { selectedSeason = Number(b.dataset.season); renderSeason(); renderAll(); };
+  });
+  document.getElementById("btnNewSeason").onclick = startNewSeason;
+}
+
+async function startNewSeason() {
+  const next = currentSeason + 1;
+  const label = prompt("新しいシーズンの名前", `シーズン${next}`);
+  if (label === null) return;
+  if (!confirm(`「${label}」を開始します。よろしいですか？（これ以降の対戦はこのシーズンに記録されます）`)) return;
+  await runTransaction(db, async (tx) => {
+    tx.set(seasonMetaRef, { current: next });
+    tx.set(doc(seasonsCol, String(next)), { label, startedAt: serverTimestamp() });
+  });
+  selectedSeason = next;
 }
 
 function colorVar(id) {
@@ -370,6 +420,7 @@ async function maybeResolve() {
         dateISO: new Date().toISOString().slice(0, 10),
         mode: s.mode, participantIds: s.participantIds, hands: finalHands,
         loserId, streakText, pitches: allPitches, createdAt: serverTimestamp(),
+        seasonId: currentSeason,
       });
       for (const id of s.participantIds) {
         tx.update(doc(membersCol, id), {
@@ -388,13 +439,33 @@ async function maybeResolve() {
 }
 
 function computeStreakText(loserId) {
+  const seasonRecords = records.filter((r) => (r.seasonId || 1) === currentSeason);
   let streak = 1;
-  for (let i = records.length - 1; i >= 0; i--) {
-    if (records[i].loserId === loserId) streak++;
+  for (let i = seasonRecords.length - 1; i >= 0; i--) {
+    if (seasonRecords[i].loserId === loserId) streak++;
     else break;
   }
   if (streak < 2) return null;
   return `${members[loserId]?.name ?? loserId}${streak}連敗`;
+}
+
+function visibleRecords() {
+  return records.filter((r) => (r.seasonId || 1) === selectedSeason);
+}
+
+function computeSeasonStats(recs) {
+  const stats = {};
+  for (const r of recs) {
+    if (!r.loserId) continue;
+    const n = r.participantIds.length;
+    for (const id of r.participantIds) {
+      stats[id] = stats[id] || { points: 0, games: 0, losses: 0 };
+      stats[id].games++;
+      if (id === r.loserId) { stats[id].points -= (n - 1); stats[id].losses++; }
+      else stats[id].points += 1;
+    }
+  }
+  return stats;
 }
 
 // ---------- stats rendering (standings / habits / heatmap / monthly / records) ----------
@@ -410,31 +481,33 @@ function renderAll() {
 
 function renderStandings() {
   const el = document.getElementById("standings");
-  const ids = memberOrder.filter((id) => members[id]);
-  if (!ids.length) { el.innerHTML = '<div class="empty">対戦記録がありません</div>'; return; }
-  const ranked = ids.slice().sort((a, b) => (members[b].points || 0) - (members[a].points || 0));
+  const stats = computeSeasonStats(visibleRecords());
+  const ids = memberOrder.filter((id) => members[id] && stats[id]);
+  if (!ids.length) { el.innerHTML = `<div class="empty">${esc(seasonLabel(selectedSeason))}の対戦記録がありません</div>`; return; }
+  const ranked = ids.slice().sort((a, b) => stats[b].points - stats[a].points);
   el.innerHTML = ranked.map((id, i) => {
     const m = members[id];
-    const good = (m.points || 0) >= 0;
-    const rate = m.games ? ((m.losses / m.games) * 100).toFixed(1) : "0.0";
+    const s = stats[id];
+    const good = s.points >= 0;
+    const rate = s.games ? ((s.losses / s.games) * 100).toFixed(1) : "0.0";
     return `<div class="card stand-card">
       <div class="rank">${i + 1}位</div>
       <div>
         <div class="stand-name-row"><span class="dot" style="background:${colorVar(id)}"></span><span class="stand-name">${esc(m.name)}</span></div>
-        <div class="stand-meta">参加 ${m.games || 0}・負け ${m.losses || 0}・敗率 ${rate}%</div>
+        <div class="stand-meta">参加 ${s.games}・負け ${s.losses}・敗率 ${rate}%</div>
       </div>
       <div class="stand-points">
-        <div class="pts-val" style="color:${good ? "var(--good)" : "var(--bad)"}">${(m.points || 0) > 0 ? "+" : ""}${m.points || 0}<span style="font-size:12px;font-weight:500;">pt</span></div>
+        <div class="pts-val" style="color:${good ? "var(--good)" : "var(--bad)"}">${s.points > 0 ? "+" : ""}${s.points}<span style="font-size:12px;font-weight:500;">pt</span></div>
         <div class="pill ${good ? "good" : "bad"}">${good ? "貯金" : "借金"}</div>
       </div>
     </div>`;
   }).join("");
 }
 
-function allThrows() {
+function allThrows(recs) {
   // {memberId: {グー,チョキ,パー}} across every pitch of every record
   const out = {};
-  for (const r of records) {
+  for (const r of recs) {
     for (const p of r.pitches || []) {
       for (const [id, h] of Object.entries(p.hands || {})) {
         const clean = (h || "").replace("(勝)", "");
@@ -449,7 +522,7 @@ function allThrows() {
 
 function renderHabits() {
   const el = document.getElementById("habits");
-  const throws = allThrows();
+  const throws = allThrows(visibleRecords());
   const ids = memberOrder.filter((id) => members[id] && throws[id]);
   if (!ids.length) { el.innerHTML = '<div class="empty">まだ投球データがありません</div>'; return; }
   let html = `<div class="habit-legend">
@@ -478,7 +551,7 @@ function renderHeatmap() {
   const el = document.getElementById("heat");
   const days = ["月", "火", "水", "木", "金", "土", "日"];
   const counts = {};
-  for (const r of records) {
+  for (const r of visibleRecords()) {
     if (!r.loserId) continue;
     const wd = days[new Date(r.dateISO + "T00:00:00").getDay() === 0 ? 6 : new Date(r.dateISO + "T00:00:00").getDay() - 1];
     counts[r.loserId] = counts[r.loserId] || {};
@@ -504,7 +577,7 @@ function renderHeatmap() {
 function renderMonthly() {
   const el = document.getElementById("monthly");
   const byMonth = {};
-  for (const r of records) {
+  for (const r of visibleRecords()) {
     if (!r.loserId) continue;
     const key = r.dateISO.slice(0, 7);
     byMonth[key] = byMonth[key] || {};
@@ -528,11 +601,12 @@ function renderMonthly() {
 }
 
 function renderRecords() {
-  document.getElementById("rec-count").textContent = records.length ? `全${records.length}戦` : "";
+  const recs = visibleRecords();
+  document.getElementById("rec-count").textContent = recs.length ? `全${recs.length}戦` : "";
   const el = document.getElementById("records");
-  if (!records.length) { el.innerHTML = '<div class="empty">まだ対戦記録がありません。上の「対戦」から始めましょう。</div>'; return; }
+  if (!recs.length) { el.innerHTML = `<div class="empty">${esc(seasonLabel(selectedSeason))}の対戦記録がまだありません。</div>`; return; }
   const weekdayJ = ["日", "月", "火", "水", "木", "金", "土"];
-  el.innerHTML = records.slice().reverse().map((r) => {
+  el.innerHTML = recs.slice().reverse().map((r) => {
     const d = new Date(r.dateISO + "T00:00:00");
     const label = `${d.getMonth() + 1}/${d.getDate()}`;
     const wd = weekdayJ[d.getDay()];
