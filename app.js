@@ -320,25 +320,36 @@ function renderRound() {
   // session in progress
   note.textContent = `${session.mode} ・ ${session.pitchIndex + 1}投目`;
   const inPool = myId && session.pool.includes(myId);
-  const alreadyThrown = myId && session.hands && session.hands[myId];
   const safe = myId && session.participantIds.includes(myId) && !session.pool.includes(myId);
+  const hands = session.hands || {};
 
   const chips = session.pool.map((id) => {
-    const done = session.hands && session.hands[id];
+    const done = hands[id];
     return `<span class="pool-chip ${done ? "done" : ""}"><span class="dot" style="background:${colorVar(id)}"></span>${esc(members[id]?.name ?? id)}${done ? " ✓" : ""}</span>`;
   }).join("");
 
+  // anyone can enter a hand for a member who hasn't submitted yet (no need to wait for
+  // each person to log in on their own device); the member themselves can always still
+  // change their own entry, which overwrites whatever was entered on their behalf
+  const editableIds = session.pool.filter((id) => !hands[id] || id === myId);
+
   let actionHtml = "";
-  if (inPool && !alreadyThrown) {
-    actionHtml = `<div class="hand-picker">
-      ${HAND_ORDER.map((h) => `<button class="btn ghost" data-hand="${h}">${h}</button>`).join("")}
-    </div>`;
+  if (editableIds.length) {
+    actionHtml = editableIds.map((id) => {
+      const mine = id === myId;
+      return `<div class="hand-picker-row">
+        <div class="hpr-name"><span class="dot" style="background:${colorVar(id)}"></span>${esc(members[id]?.name ?? id)}${mine ? '<span class="tag">あなた</span>' : ""}</div>
+        <div class="hand-picker">
+          ${HAND_ORDER.map((h) => `<button class="btn ghost small ${hands[id] === h ? "on" : ""}" data-hand-for="${id}" data-hand="${h}" style="${hands[id] === h ? "background:var(--accent);color:var(--accent-ink);border-color:transparent;" : ""}">${h}</button>`).join("")}
+        </div>
+      </div>`;
+    }).join("");
   } else if (safe) {
     actionHtml = '<div class="status-msg">勝ち抜けました！結果を待っています。</div>';
-  } else if (inPool && alreadyThrown) {
-    actionHtml = '<div class="status-msg">送信済みです。他の人を待っています。</div>';
+  } else if (inPool) {
+    actionHtml = '<div class="status-msg">全員入力済みです。判定中…</div>';
   } else if (!myId) {
-    actionHtml = '<div class="status-msg">対戦を見学中です。</div>';
+    actionHtml = '<div class="status-msg">対戦を見学中です。他の人の端末からも入力できます。</div>';
   } else {
     actionHtml = '<div class="status-msg">この対戦には参加していません。</div>';
   }
@@ -353,13 +364,11 @@ function renderRound() {
 
   el.innerHTML = `<div class="pool-chips">${chips}</div>${actionHtml}${logHtml}${cancelHtml}`;
 
-  if (inPool && !alreadyThrown) {
-    el.querySelectorAll("[data-hand]").forEach((b) => {
-      b.onclick = async () => {
-        await updateDoc(sessionRef, { [`hands.${myId}`]: b.dataset.hand });
-      };
-    });
-  }
+  el.querySelectorAll("[data-hand-for]").forEach((b) => {
+    b.onclick = async () => {
+      await updateDoc(sessionRef, { [`hands.${b.dataset.handFor}`]: b.dataset.hand });
+    };
+  });
   const cancelBtn = document.getElementById("btnCancel");
   if (cancelBtn) cancelBtn.onclick = async () => {
     if (confirm("この対戦を中止しますか？")) await deleteDoc(sessionRef);

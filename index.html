@@ -101,8 +101,12 @@
   .pool-chips{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px;}
   .pool-chip{display:flex;align-items:center;gap:6px;padding:6px 12px;border-radius:999px;background:var(--surface-2);border:1px solid var(--line);font-size:12.5px;font-weight:700;}
   .pool-chip.done{background:var(--good-soft);color:var(--good);border-color:transparent;}
-  .hand-picker{display:flex;gap:10px;}
-  .hand-picker button{flex:1;padding:18px 8px;font-size:15px;border-radius:12px;}
+  .hand-picker-row{display:flex;flex-direction:column;gap:8px;padding:12px 0;border-top:1px solid var(--line);}
+  .hand-picker-row:first-child{border-top:none;padding-top:0;}
+  .hpr-name{font-size:13px;font-weight:700;display:flex;align-items:center;gap:7px;}
+  .hpr-name .tag{font-size:10px;font-weight:700;color:var(--accent-strong);background:var(--accent-soft);padding:1px 8px;border-radius:999px;}
+  .hand-picker{display:flex;gap:8px;}
+  .hand-picker button{flex:1;}
   .status-msg{font-size:13.5px;color:var(--ink-soft);background:var(--surface-2);border-radius:10px;padding:12px 14px;}
   .pitch-log{margin-top:14px;display:flex;flex-direction:column;gap:5px;font-size:11.5px;color:var(--muted);}
   .pitch-log .res{font-weight:700;}
