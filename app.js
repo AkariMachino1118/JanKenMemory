@@ -498,6 +498,7 @@ function renderAll() {
   renderRound();
   renderStandings();
   renderHabits();
+  renderLoseHabits();
   renderHeatmap();
   renderMonthly();
   renderRecords();
@@ -544,18 +545,30 @@ function allThrows(recs) {
   return out;
 }
 
-function renderHabits() {
-  const el = document.getElementById("habits");
-  const throws = allThrows(visibleRecords());
-  const ids = memberOrder.filter((id) => members[id] && throws[id]);
-  if (!ids.length) { el.innerHTML = '<div class="empty">まだ投球データがありません</div>'; return; }
+function loseThrows(recs) {
+  // {memberId: {グー,チョキ,パー}} — only the hand each person showed in the round they lost
+  const out = {};
+  for (const r of recs) {
+    if (!r.loserId) continue;
+    const h = (r.hands[r.loserId] || "").replace("(勝)", "");
+    if (!HAND_ORDER.includes(h)) continue;
+    out[r.loserId] = out[r.loserId] || { "グー": 0, "チョキ": 0, "パー": 0 };
+    out[r.loserId][h]++;
+  }
+  return out;
+}
+
+function renderHandBars(containerId, throwsMap, emptyMsg, totalSuffix) {
+  const el = document.getElementById(containerId);
+  const ids = memberOrder.filter((id) => members[id] && throwsMap[id]);
+  if (!ids.length) { el.innerHTML = `<div class="empty">${emptyMsg}</div>`; return; }
   let html = `<div class="habit-legend">
     <span><i style="background:var(--accent-strong)"></i>グー</span>
     <span><i style="background:var(--accent)"></i>チョキ</span>
     <span><i style="background:var(--accent-soft);border:1px solid var(--line-strong)"></i>パー</span>
   </div>`;
   ids.forEach((id) => {
-    const h = throws[id];
+    const h = throwsMap[id];
     const total = h["グー"] + h["チョキ"] + h["パー"];
     const segs = HAND_ORDER.map((k) => {
       const pct = (h[k] / total) * 100;
@@ -564,11 +577,19 @@ function renderHabits() {
       return `<div class="habit-seg" style="width:${pct}%;background:${bg};color:${fg}">${pct >= 12 ? h[k] : ""}</div>`;
     }).join("");
     html += `<div class="habit-row">
-      <div class="habit-row-top"><span class="name"><span class="dot" style="background:${colorVar(id)}"></span>${esc(members[id].name)}</span><span class="total">計 ${total}回</span></div>
+      <div class="habit-row-top"><span class="name"><span class="dot" style="background:${colorVar(id)}"></span>${esc(members[id].name)}</span><span class="total">計 ${total}${totalSuffix}</span></div>
       <div class="habit-bar">${segs}</div>
     </div>`;
   });
   el.innerHTML = html;
+}
+
+function renderHabits() {
+  renderHandBars("habits", allThrows(visibleRecords()), "まだ投球データがありません", "回");
+}
+
+function renderLoseHabits() {
+  renderHandBars("losehabits", loseThrows(visibleRecords()), "まだ負けた記録がありません", "敗");
 }
 
 function renderHeatmap() {
