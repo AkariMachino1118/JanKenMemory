@@ -535,6 +535,7 @@ function renderAll() {
   renderMembers();
   renderRound();
   renderStandings();
+  renderPayments();
   renderHabits();
   renderLoseHabits();
   renderHeatmap();
@@ -565,6 +566,23 @@ function renderStandings() {
       </div>
     </div>`;
   }).join("");
+}
+
+function renderPayments() {
+  const el = document.getElementById("payments");
+  const totals = {};
+  for (const r of visibleRecords()) {
+    if (!r.loserId || !r.amount) continue;
+    totals[r.loserId] = (totals[r.loserId] || 0) + Number(r.amount);
+  }
+  const ids = memberOrder.filter((id) => members[id] && totals[id]);
+  if (!ids.length) { el.innerHTML = '<div class="empty">支払い金額の記録がまだありません（対戦記録の編集から入力できます）</div>'; return; }
+  const ranked = ids.slice().sort((a, b) => totals[b] - totals[a]);
+  el.innerHTML = ranked.map((id) => `<div class="card stand-card">
+      <div class="rank">💰</div>
+      <div><div class="stand-name-row"><span class="dot" style="background:${colorVar(id)}"></span><span class="stand-name">${esc(members[id].name)}</span></div></div>
+      <div class="stand-points"><div class="pts-val">${totals[id].toLocaleString()}<span style="font-size:12px;font-weight:500;">円</span></div></div>
+    </div>`).join("");
 }
 
 function allThrows(recs) {
@@ -717,6 +735,7 @@ function renderRecords() {
       <select class="field" id="editLoser-${r.id}">
         ${r.participantIds.map((id) => `<option value="${id}" ${id === r.loserId ? "selected" : ""}>${esc(members[id]?.name ?? id)}</option>`).join("")}
       </select>
+      <input type="number" inputmode="numeric" min="0" step="1" class="field" id="editAmount-${r.id}" placeholder="負けた人の支払い金額（円）" value="${r.amount || ""}" style="margin-top:10px">
       <div style="display:flex;gap:8px;margin-top:10px">
         <button class="btn small" data-save="${r.id}" style="flex:1">保存</button>
         <button class="btn ghost small" data-canceledit="${r.id}">キャンセル</button>
@@ -733,6 +752,7 @@ function renderRecords() {
       </div>
       <div class="rec-hands">${hands}</div>
       ${r.streakText ? `<div class="streak">🔥 ${esc(r.streakText)}</div>` : ""}
+      ${r.amount ? `<div class="sec-note">支払い: ${Number(r.amount).toLocaleString()}円</div>` : ""}
       ${pitches ? `<details><summary>投球の詳細（${(r.pitches || []).length}球）</summary><div class="pitch-list">${pitches}</div></details>` : ""}
       ${editBox}
     </div>`;
@@ -764,10 +784,11 @@ function renderRecords() {
       const rid = b.dataset.save;
       const dateISO = document.getElementById("editDate-" + rid).value;
       const loserId = document.getElementById("editLoser-" + rid).value;
+      const amount = Math.max(0, Number(document.getElementById("editAmount-" + rid).value) || 0);
       const modeBtn = el.querySelector(`[data-editmode].on[data-rid="${rid}"]`);
       const mode = modeBtn ? modeBtn.dataset.editmode : "通常モード";
       if (!dateISO) { alert("日付を入力してください"); return; }
-      await updateDoc(doc(recordsCol, rid), { dateISO, mode, loserId, streakText: null });
+      await updateDoc(doc(recordsCol, rid), { dateISO, mode, loserId, amount, streakText: null });
       document.getElementById("edit-" + rid).style.display = "none";
     };
   });
