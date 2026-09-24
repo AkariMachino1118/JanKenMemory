@@ -707,14 +707,68 @@ function renderRecords() {
       const cls = p.result === "最終決着" ? "decide" : p.result === "勝ち抜け発生" ? "advance" : "draw";
       return `<div class="pitch"><span class="hs">${hs}</span><span class="res ${cls}">${p.result}</span></div>`;
     }).join("");
+    const editBtn = myId ? `<button class="btn ghost small" data-toggleedit="${r.id}">編集</button>` : "";
+    const editBox = myId ? `<div class="rec-edit" id="edit-${r.id}" style="display:none">
+      <input type="date" class="field" id="editDate-${r.id}" value="${r.dateISO}">
+      <div class="mode-pick" style="margin:10px 0">
+        <button class="btn ghost small ${r.mode === "通常モード" ? "on" : ""}" data-editmode="通常モード" data-rid="${r.id}">通常モード</button>
+        <button class="btn ghost small ${r.mode === "男気モード" ? "on" : ""}" data-editmode="男気モード" data-rid="${r.id}">男気モード</button>
+      </div>
+      <select class="field" id="editLoser-${r.id}">
+        ${r.participantIds.map((id) => `<option value="${id}" ${id === r.loserId ? "selected" : ""}>${esc(members[id]?.name ?? id)}</option>`).join("")}
+      </select>
+      <div style="display:flex;gap:8px;margin-top:10px">
+        <button class="btn small" data-save="${r.id}" style="flex:1">保存</button>
+        <button class="btn ghost small" data-canceledit="${r.id}">キャンセル</button>
+        <button class="btn ghost small" data-delete="${r.id}" style="color:var(--bad)">削除</button>
+      </div>
+    </div>` : "";
     return `<div class="card rec">
       <div class="rec-top">
         <div class="rec-date"><span class="d">${label}</span><span class="sec-note">(${wd})</span></div>
-        <span class="badge ${r.mode === "男気モード" ? "otoko" : ""}">${r.mode}</span>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span class="badge ${r.mode === "男気モード" ? "otoko" : ""}">${r.mode}</span>
+          ${editBtn}
+        </div>
       </div>
       <div class="rec-hands">${hands}</div>
       ${r.streakText ? `<div class="streak">🔥 ${esc(r.streakText)}</div>` : ""}
       ${pitches ? `<details><summary>投球の詳細（${(r.pitches || []).length}球）</summary><div class="pitch-list">${pitches}</div></details>` : ""}
+      ${editBox}
     </div>`;
   }).join("");
+
+  el.querySelectorAll("[data-toggleedit]").forEach((b) => {
+    b.onclick = () => {
+      const box = document.getElementById("edit-" + b.dataset.toggleedit);
+      box.style.display = box.style.display === "none" ? "block" : "none";
+    };
+  });
+  el.querySelectorAll("[data-editmode]").forEach((b) => {
+    b.onclick = () => {
+      el.querySelectorAll(`[data-editmode][data-rid="${b.dataset.rid}"]`).forEach((x) => x.classList.remove("on"));
+      b.classList.add("on");
+    };
+  });
+  el.querySelectorAll("[data-canceledit]").forEach((b) => {
+    b.onclick = () => { document.getElementById("edit-" + b.dataset.canceledit).style.display = "none"; };
+  });
+  el.querySelectorAll("[data-delete]").forEach((b) => {
+    b.onclick = async () => {
+      if (!confirm("この対戦記録を削除しますか？元に戻せません。")) return;
+      await deleteDoc(doc(recordsCol, b.dataset.delete));
+    };
+  });
+  el.querySelectorAll("[data-save]").forEach((b) => {
+    b.onclick = async () => {
+      const rid = b.dataset.save;
+      const dateISO = document.getElementById("editDate-" + rid).value;
+      const loserId = document.getElementById("editLoser-" + rid).value;
+      const modeBtn = el.querySelector(`[data-editmode].on[data-rid="${rid}"]`);
+      const mode = modeBtn ? modeBtn.dataset.editmode : "通常モード";
+      if (!dateISO) { alert("日付を入力してください"); return; }
+      await updateDoc(doc(recordsCol, rid), { dateISO, mode, loserId, streakText: null });
+      document.getElementById("edit-" + rid).style.display = "none";
+    };
+  });
 }

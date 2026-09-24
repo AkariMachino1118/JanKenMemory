@@ -11,8 +11,7 @@ service cloud.firestore {
 
     match /records/{recordId} {
       allow read: if signedIn();
-      allow create: if signedIn();
-      allow update, delete: if false;
+      allow create, update, delete: if signedIn();
     }
 
     match /session/current {
