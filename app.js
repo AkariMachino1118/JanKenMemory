@@ -317,10 +317,22 @@ function renderRound() {
         <button class="btn ghost on" data-mode="通常モード" id="modeA">通常モード</button>
         <button class="btn ghost" data-mode="男気モード" id="modeB">男気モード</button>
       </div>
+      <div class="sec-note" id="modeNote" style="margin-bottom:14px">じゃんけんに負けた人が負けです</div>
       <button class="btn" id="btnStart" style="width:100%">対戦を始める</button>`;
     let mode = "通常モード";
-    document.getElementById("modeA").onclick = () => { mode = "通常モード"; document.getElementById("modeA").classList.add("on"); document.getElementById("modeB").classList.remove("on"); };
-    document.getElementById("modeB").onclick = () => { mode = "男気モード"; document.getElementById("modeB").classList.add("on"); document.getElementById("modeA").classList.remove("on"); };
+    const modeNote = document.getElementById("modeNote");
+    document.getElementById("modeA").onclick = () => {
+      mode = "通常モード";
+      document.getElementById("modeA").classList.add("on");
+      document.getElementById("modeB").classList.remove("on");
+      modeNote.textContent = "じゃんけんに負けた人が負けです";
+    };
+    document.getElementById("modeB").onclick = () => {
+      mode = "男気モード";
+      document.getElementById("modeB").classList.add("on");
+      document.getElementById("modeA").classList.remove("on");
+      modeNote.textContent = "通常と逆に、じゃんけんに勝った人が負けです";
+    };
     document.getElementById("btnStart").onclick = async () => {
       const picked = [...document.querySelectorAll('#pPick input:checked')].map((i) => i.value);
       if (picked.length < 2) { alert("2人以上選んでください"); return; }
@@ -463,19 +475,23 @@ async function maybeResolve() {
       const [t1, t2] = [...types];
       const winType = BEATS[t1] === t2 ? t1 : t2;
       const loseType = winType === t1 ? t2 : t1;
-      const losers = throwers.filter((id) => s.hands[id] === loseType);
+      // 通常モード: the losing hand keeps playing (sudden death) until one remains.
+      // 男気モード: reversed — the winning hand keeps playing, so a winner can end
+      // up the final "loser" who takes the penalty.
+      const continueType = s.mode === "男気モード" ? winType : loseType;
+      const continuing = throwers.filter((id) => s.hands[id] === continueType);
 
-      if (losers.length > 1) {
+      if (continuing.length > 1) {
         newPitch.result = "勝ち抜け発生";
         tx.update(sessionRef, {
-          pool: losers, hands: {}, pitchIndex: s.pitchIndex + 1,
+          pool: continuing, hands: {}, pitchIndex: s.pitchIndex + 1,
           pitches: arrayUnion(newPitch), withdrawn: withdrawnAll,
         });
         return;
       }
 
       newPitch.result = "最終決着";
-      finalize(losers[0]);
+      finalize(continuing[0]);
     });
   } catch (e) {
     console.error(e);
