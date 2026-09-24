@@ -326,7 +326,7 @@ function renderRound() {
       if (picked.length < 2) { alert("2人以上選んでください"); return; }
       await setDoc(sessionRef, {
         status: "collecting", participantIds: picked, pool: picked, hands: {},
-        pitchIndex: 0, pitches: [], mode, startedAt: serverTimestamp(),
+        pitchIndex: 0, pitches: [], withdrawn: [], mode, startedAt: serverTimestamp(),
       });
     };
     return;
@@ -356,6 +356,7 @@ function renderRound() {
         <div class="hpr-name"><span class="dot" style="background:${colorVar(id)}"></span>${esc(members[id]?.name ?? id)}${mine ? '<span class="tag">あなた</span>' : ""}</div>
         <div class="hand-picker">
           ${HAND_ORDER.map((h) => `<button class="btn ghost small ${hands[id] === h ? "on" : ""}" data-hand-for="${id}" data-hand="${h}" style="${hands[id] === h ? "background:var(--accent);color:var(--accent-ink);border-color:transparent;" : ""}">${h}</button>`).join("")}
+          <button class="btn ghost small ${hands[id] === "不参加" ? "on" : ""}" data-hand-for="${id}" data-hand="不参加" style="${hands[id] === "不参加" ? "background:var(--muted);color:var(--surface);border-color:transparent;" : "color:var(--muted);"}">不参加</button>
         </div>
       </div>`;
     }).join("");
@@ -404,56 +405,77 @@ async function maybeResolve() {
       if (s.status !== "collecting") return;
       if (!s.pool.every((id) => s.hands && s.hands[id])) return;
 
-      const types = new Set(s.pool.map((id) => s.hands[id]));
       const newPitch = { hands: { ...s.hands }, result: "" };
+      const withdrawnNow = s.pool.filter((id) => s.hands[id] === "不参加");
+      const throwers = s.pool.filter((id) => s.hands[id] !== "不参加");
+      const withdrawnAll = [...(s.withdrawn || []), ...withdrawnNow];
 
+      const finalize = (loserId) => {
+        const allPitches = [...(s.pitches || []), newPitch];
+        const participantIds = s.participantIds.filter((id) => !withdrawnAll.includes(id));
+        const finalHands = {};
+        for (const id of s.participantIds) {
+          for (let i = allPitches.length - 1; i >= 0; i--) {
+            if (allPitches[i].hands[id]) { finalHands[id] = allPitches[i].hands[id]; break; }
+          }
+        }
+        const n = participantIds.length;
+        const streakText = computeStreakText(loserId);
+        const newRecRef = doc(recordsCol);
+        tx.set(newRecRef, {
+          dateISO: new Date().toISOString().slice(0, 10),
+          mode: s.mode, participantIds, hands: finalHands,
+          loserId, streakText, pitches: allPitches, createdAt: serverTimestamp(),
+          seasonId: currentSeason,
+        });
+        for (const id of participantIds) {
+          tx.update(doc(membersCol, id), {
+            games: increment(1),
+            points: increment(id === loserId ? -(n - 1) : 1),
+            losses: increment(id === loserId ? 1 : 0),
+          });
+        }
+        tx.delete(sessionRef);
+      };
+
+      if (throwers.length === 0) {
+        // everyone still in the pool dropped out on this pitch — nothing left to decide
+        tx.delete(sessionRef);
+        return;
+      }
+      if (throwers.length === 1) {
+        // only one person left after withdrawals: they lose by default, same as
+        // when a hand comparison narrows the pool down to a single person
+        newPitch.result = "最終決着";
+        finalize(throwers[0]);
+        return;
+      }
+
+      const types = new Set(throwers.map((id) => s.hands[id]));
       if (types.size === 1 || types.size === 3) {
         newPitch.result = "あいこ";
         tx.update(sessionRef, {
-          hands: {}, pitchIndex: s.pitchIndex + 1, pitches: arrayUnion(newPitch),
+          pool: throwers, hands: {}, pitchIndex: s.pitchIndex + 1,
+          pitches: arrayUnion(newPitch), withdrawn: withdrawnAll,
         });
         return;
       }
       const [t1, t2] = [...types];
       const winType = BEATS[t1] === t2 ? t1 : t2;
       const loseType = winType === t1 ? t2 : t1;
-      const losers = s.pool.filter((id) => s.hands[id] === loseType);
+      const losers = throwers.filter((id) => s.hands[id] === loseType);
 
       if (losers.length > 1) {
         newPitch.result = "勝ち抜け発生";
         tx.update(sessionRef, {
-          pool: losers, hands: {}, pitchIndex: s.pitchIndex + 1, pitches: arrayUnion(newPitch),
+          pool: losers, hands: {}, pitchIndex: s.pitchIndex + 1,
+          pitches: arrayUnion(newPitch), withdrawn: withdrawnAll,
         });
         return;
       }
 
       newPitch.result = "最終決着";
-      const loserId = losers[0];
-      const allPitches = [...(s.pitches || []), newPitch];
-      const finalHands = {};
-      for (const id of s.participantIds) {
-        for (let i = allPitches.length - 1; i >= 0; i--) {
-          if (allPitches[i].hands[id]) { finalHands[id] = allPitches[i].hands[id]; break; }
-        }
-      }
-      const n = s.participantIds.length;
-      const streakText = computeStreakText(loserId);
-
-      const newRecRef = doc(recordsCol);
-      tx.set(newRecRef, {
-        dateISO: new Date().toISOString().slice(0, 10),
-        mode: s.mode, participantIds: s.participantIds, hands: finalHands,
-        loserId, streakText, pitches: allPitches, createdAt: serverTimestamp(),
-        seasonId: currentSeason,
-      });
-      for (const id of s.participantIds) {
-        tx.update(doc(membersCol, id), {
-          games: increment(1),
-          points: increment(id === loserId ? -(n - 1) : 1),
-          losses: increment(id === loserId ? 1 : 0),
-        });
-      }
-      tx.delete(sessionRef);
+      finalize(losers[0]);
     });
   } catch (e) {
     console.error(e);
