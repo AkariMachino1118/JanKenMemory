@@ -657,19 +657,18 @@ function renderHandBars(containerId, throwsMap, emptyMsg, totalSuffix) {
   const el = document.getElementById(containerId);
   const ids = memberOrder.filter((id) => members[id] && throwsMap[id]);
   if (!ids.length) { el.innerHTML = `<div class="empty">${emptyMsg}</div>`; return; }
+  const handColor = { "グー": "var(--hand-gu)", "チョキ": "var(--hand-choki)", "パー": "var(--hand-pa)" };
   let html = `<div class="habit-legend">
-    <span><i style="background:var(--accent-strong)"></i>グー</span>
-    <span><i style="background:var(--accent)"></i>チョキ</span>
-    <span><i style="background:var(--accent-soft);border:1px solid var(--line-strong)"></i>パー</span>
+    <span><i style="background:${handColor["グー"]}"></i>グー</span>
+    <span><i style="background:${handColor["チョキ"]}"></i>チョキ</span>
+    <span><i style="background:${handColor["パー"]}"></i>パー</span>
   </div>`;
   ids.forEach((id) => {
     const h = throwsMap[id];
     const total = h["グー"] + h["チョキ"] + h["パー"];
     const segs = HAND_ORDER.map((k) => {
       const pct = (h[k] / total) * 100;
-      const bg = k === "グー" ? "var(--accent-strong)" : k === "チョキ" ? "var(--accent)" : "var(--accent-soft)";
-      const fg = k === "パー" ? "var(--accent-strong)" : "var(--accent-ink)";
-      return `<div class="habit-seg" style="width:${pct}%;background:${bg};color:${fg}">${pct >= 12 ? h[k] : ""}</div>`;
+      return `<div class="habit-seg" style="width:${pct}%;background:${handColor[k]};color:#fff">${pct >= 12 ? h[k] : ""}</div>`;
     }).join("");
     html += `<div class="habit-row">
       <div class="habit-row-top"><span class="name"><span class="dot" style="background:${colorVar(id)}"></span>${esc(members[id].name)}</span><span class="total">計 ${total}${totalSuffix}</span></div>
