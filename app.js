@@ -567,13 +567,15 @@ function renderStandings() {
   const ids = memberOrder.filter((id) => members[id] && stats[id]);
   if (!ids.length) { el.innerHTML = `<div class="empty">${esc(seasonLabel(selectedSeason))}の対戦記録がありません</div>`; return; }
   const ranked = ids.slice().sort((a, b) => stats[b].points - stats[a].points);
+  let lastPoints = null, lastRank = 0;
   el.innerHTML = ranked.map((id, i) => {
     const m = members[id];
     const s = stats[id];
+    if (s.points !== lastPoints) { lastRank = i + 1; lastPoints = s.points; }
     const good = s.points >= 0;
     const rate = s.games ? ((s.losses / s.games) * 100).toFixed(1) : "0.0";
     return `<div class="card stand-card">
-      <div class="rank">${i + 1}位</div>
+      <div class="rank">${lastRank}位</div>
       <div>
         <div class="stand-name-row"><span class="dot" style="background:${colorVar(id)}"></span><span class="stand-name">${esc(m.name)}</span></div>
         <div class="stand-meta">参加 ${s.games}・負け ${s.losses}・敗率 ${rate}%</div>
