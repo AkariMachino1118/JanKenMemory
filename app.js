@@ -6,6 +6,24 @@ import {
   collection, runTransaction, serverTimestamp, arrayUnion, increment,
 } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
 
+// ---------- theme toggle ----------
+function systemPrefersDark() {
+  return window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+}
+function currentTheme() {
+  return document.documentElement.getAttribute("data-theme") || (systemPrefersDark() ? "dark" : "light");
+}
+function applyTheme(theme) {
+  document.documentElement.setAttribute("data-theme", theme);
+  try { localStorage.setItem("jankenTheme", theme); } catch (e) {}
+  const btn = document.getElementById("themeToggle");
+  if (btn) btn.textContent = theme === "dark" ? "☀️" : "🌙";
+}
+applyTheme(currentTheme());
+document.getElementById("themeToggle").onclick = () => {
+  applyTheme(currentTheme() === "dark" ? "light" : "dark");
+};
+
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
