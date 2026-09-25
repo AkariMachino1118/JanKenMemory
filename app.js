@@ -624,45 +624,6 @@ function renderPayments() {
   }).join("");
 }
 
-function guessAmountFromText(text) {
-  const keyword = /(合計|お会計|ご請求|total)/i;
-  const lines = text.split(/\r?\n/);
-  for (const line of lines) {
-    if (keyword.test(line)) {
-      const nums = line.replace(/,/g, "").match(/\d{2,6}/g);
-      if (nums) return Math.max(...nums.map(Number));
-    }
-  }
-  const all = text.replace(/,/g, "").match(/\d{2,6}/g);
-  return all && all.length ? Math.max(...all.map(Number)) : null;
-}
-
-async function readReceipt(rid, input) {
-  const file = input.files[0];
-  if (!file) return;
-  const status = document.getElementById("receiptStatus-" + rid);
-  if (!window.Tesseract) { status.textContent = "読み取り機能を読み込めませんでした"; return; }
-  status.textContent = "読み取り中…";
-  try {
-    const worker = await window.Tesseract.createWorker("eng");
-    const { data } = await worker.recognize(file);
-    await worker.terminate();
-    const guess = guessAmountFromText(data.text || "");
-    if (guess) {
-      const loserSel = document.getElementById("editLoser-" + rid);
-      const target = loserSel && document.getElementById(`editAmt-${rid}-${loserSel.value}`);
-      if (target) target.value = guess;
-      status.textContent = `${guess.toLocaleString()}円を検出しました（負けた人の欄）。内容を確認してください`;
-    } else {
-      status.textContent = "金額を検出できませんでした。手入力してください";
-    }
-  } catch (e) {
-    console.error(e);
-    status.textContent = "読み取りに失敗しました。手入力してください";
-  }
-  input.value = "";
-}
-
 function allThrows(recs) {
   // {memberId: {グー,チョキ,パー}} across every pitch of every record
   const out = {};
@@ -824,11 +785,6 @@ function renderRecords() {
           </span>
           <input type="number" inputmode="numeric" min="0" step="1" class="field" id="editAmt-${r.id}-${id}" placeholder="0" value="${(r.amounts && r.amounts[id]) || (!r.amounts && id === r.loserId && r.amount) || ""}">
         </div>`).join("")}
-      <div style="display:flex;align-items:center;gap:10px;margin-top:8px">
-        <input type="file" accept="image/*" capture="environment" id="receiptFile-${r.id}" style="display:none">
-        <button type="button" class="btn ghost small" data-receipt="${r.id}">📷 レシートから金額を読み取る</button>
-        <span class="sec-note" id="receiptStatus-${r.id}"></span>
-      </div>
       <div style="display:flex;gap:8px;margin-top:10px">
         <button class="btn small" data-save="${r.id}" style="flex:1">保存</button>
         <button class="btn ghost small" data-canceledit="${r.id}">キャンセル</button>
@@ -864,12 +820,6 @@ function renderRecords() {
   });
   el.querySelectorAll("[data-canceledit]").forEach((b) => {
     b.onclick = () => { document.getElementById("edit-" + b.dataset.canceledit).style.display = "none"; };
-  });
-  el.querySelectorAll("[data-receipt]").forEach((b) => {
-    b.onclick = () => document.getElementById("receiptFile-" + b.dataset.receipt).click();
-  });
-  el.querySelectorAll('input[id^="receiptFile-"]').forEach((input) => {
-    input.onchange = () => readReceipt(input.id.replace("receiptFile-", ""), input);
   });
   el.querySelectorAll("[data-delete]").forEach((b) => {
     b.onclick = async () => {
