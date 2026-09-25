@@ -586,21 +586,42 @@ function renderStandings() {
   }).join("");
 }
 
+function recordAmounts(r) {
+  // {memberId: signedAmount} for one record — winners positive, the loser negative.
+  // Falls back to the old single `amount` field (attributed entirely to the loser)
+  // for records saved before per-player amounts existed.
+  const out = {};
+  if (r.amounts) {
+    for (const [id, v] of Object.entries(r.amounts)) {
+      const n = Number(v) || 0;
+      if (n) out[id] = id === r.loserId ? -n : n;
+    }
+  } else if (r.amount && r.loserId) {
+    out[r.loserId] = -Number(r.amount);
+  }
+  return out;
+}
+
 function renderPayments() {
   const el = document.getElementById("payments");
   const totals = {};
   for (const r of visibleRecords()) {
-    if (!r.loserId || !r.amount) continue;
-    totals[r.loserId] = (totals[r.loserId] || 0) + Number(r.amount);
+    for (const [id, v] of Object.entries(recordAmounts(r))) {
+      totals[id] = (totals[id] || 0) + v;
+    }
   }
   const ids = memberOrder.filter((id) => members[id] && totals[id]);
-  if (!ids.length) { el.innerHTML = '<div class="empty">支払い金額の記録がまだありません（対戦記録の編集から入力できます）</div>'; return; }
+  if (!ids.length) { el.innerHTML = '<div class="empty">金額の記録がまだありません（対戦記録の編集から入力できます）</div>'; return; }
   const ranked = ids.slice().sort((a, b) => totals[b] - totals[a]);
-  el.innerHTML = ranked.map((id) => `<div class="card stand-card">
+  el.innerHTML = ranked.map((id) => {
+    const v = totals[id];
+    const good = v >= 0;
+    return `<div class="card stand-card">
       <div class="rank">💰</div>
       <div><div class="stand-name-row"><span class="dot" style="background:${colorVar(id)}"></span><span class="stand-name">${esc(members[id].name)}</span></div></div>
-      <div class="stand-points"><div class="pts-val">${totals[id].toLocaleString()}<span style="font-size:12px;font-weight:500;">円</span></div></div>
-    </div>`).join("");
+      <div class="stand-points"><div class="pts-val" style="color:${good ? "var(--good)" : "var(--bad)"}">${v > 0 ? "+" : ""}${v.toLocaleString()}<span style="font-size:12px;font-weight:500;">円</span></div></div>
+    </div>`;
+  }).join("");
 }
 
 function guessAmountFromText(text) {
@@ -628,8 +649,10 @@ async function readReceipt(rid, input) {
     await worker.terminate();
     const guess = guessAmountFromText(data.text || "");
     if (guess) {
-      document.getElementById("editAmount-" + rid).value = guess;
-      status.textContent = `${guess.toLocaleString()}円を検出しました。内容を確認してください`;
+      const loserSel = document.getElementById("editLoser-" + rid);
+      const target = loserSel && document.getElementById(`editAmt-${rid}-${loserSel.value}`);
+      if (target) target.value = guess;
+      status.textContent = `${guess.toLocaleString()}円を検出しました（負けた人の欄）。内容を確認してください`;
     } else {
       status.textContent = "金額を検出できませんでした。手入力してください";
     }
@@ -766,13 +789,16 @@ function renderRecords() {
     const d = new Date(r.dateISO + "T00:00:00");
     const label = `${d.getMonth() + 1}/${d.getDate()}`;
     const wd = weekdayJ[d.getDay()];
+    const amts = recordAmounts(r);
     const hands = r.participantIds.map((id) => {
       const isLose = id === r.loserId;
       const h = (r.hands[id] || "").replace("(勝)", "");
+      const amt = amts[id];
       return `<div class="hand-chip ${isLose ? "lose" : ""}">
         <span class="who"><span class="dot" style="width:6px;height:6px;background:${colorVar(id)}"></span>${esc(members[id]?.name ?? id)}</span>
         <span class="hand">${h}</span>
         <span class="tag">${isLose ? "敗" : ""}</span>
+        ${amt ? `<span class="tag" style="color:${amt > 0 ? "var(--good)" : "var(--bad)"}">${amt > 0 ? "+" : ""}${amt.toLocaleString()}円</span>` : ""}
       </div>`;
     }).join("");
     const pitches = (r.pitches || []).map((p) => {
@@ -790,7 +816,14 @@ function renderRecords() {
       <select class="field" id="editLoser-${r.id}">
         ${r.participantIds.map((id) => `<option value="${id}" ${id === r.loserId ? "selected" : ""}>${esc(members[id]?.name ?? id)}</option>`).join("")}
       </select>
-      <input type="number" inputmode="numeric" min="0" step="1" class="field" id="editAmount-${r.id}" placeholder="負けた人の支払い金額（円）" value="${r.amount || ""}" style="margin-top:10px">
+      <div class="sec-note" style="margin-top:10px">金額（勝った人はプラス、負けた人はマイナスとして集計されます）</div>
+      ${r.participantIds.map((id) => `
+        <div style="display:flex;align-items:center;gap:8px;margin-top:6px">
+          <span style="flex:0 0 76px;font-size:12.5px;display:flex;align-items:center;gap:5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+            <span class="dot" style="background:${colorVar(id)}"></span>${esc(members[id]?.name ?? id)}
+          </span>
+          <input type="number" inputmode="numeric" min="0" step="1" class="field" id="editAmt-${r.id}-${id}" placeholder="0" value="${(r.amounts && r.amounts[id]) || (!r.amounts && id === r.loserId && r.amount) || ""}">
+        </div>`).join("")}
       <div style="display:flex;align-items:center;gap:10px;margin-top:8px">
         <input type="file" accept="image/*" capture="environment" id="receiptFile-${r.id}" style="display:none">
         <button type="button" class="btn ghost small" data-receipt="${r.id}">📷 レシートから金額を読み取る</button>
@@ -812,7 +845,6 @@ function renderRecords() {
       </div>
       <div class="rec-hands">${hands}</div>
       ${r.streakText ? `<div class="streak">🔥 ${esc(r.streakText)}</div>` : ""}
-      ${r.amount ? `<div class="sec-note">支払い: ${Number(r.amount).toLocaleString()}円</div>` : ""}
       ${pitches ? `<details><summary>投球の詳細（${(r.pitches || []).length}球）</summary><div class="pitch-list">${pitches}</div></details>` : ""}
       ${editBox}
     </div>`;
@@ -850,11 +882,17 @@ function renderRecords() {
       const rid = b.dataset.save;
       const dateISO = document.getElementById("editDate-" + rid).value;
       const loserId = document.getElementById("editLoser-" + rid).value;
-      const amount = Math.max(0, Number(document.getElementById("editAmount-" + rid).value) || 0);
       const modeBtn = el.querySelector(`[data-editmode].on[data-rid="${rid}"]`);
       const mode = modeBtn ? modeBtn.dataset.editmode : "通常モード";
       if (!dateISO) { alert("日付を入力してください"); return; }
-      await updateDoc(doc(recordsCol, rid), { dateISO, mode, loserId, amount, streakText: null });
+      const rec = records.find((x) => x.id === rid);
+      const amounts = {};
+      (rec ? rec.participantIds : []).forEach((id) => {
+        const input = document.getElementById(`editAmt-${rid}-${id}`);
+        const v = input ? Math.max(0, Number(input.value) || 0) : 0;
+        if (v) amounts[id] = v;
+      });
+      await updateDoc(doc(recordsCol, rid), { dateISO, mode, loserId, amounts, streakText: null });
       document.getElementById("edit-" + rid).style.display = "none";
     };
   });
