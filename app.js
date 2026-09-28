@@ -134,9 +134,9 @@ function renderSeason() {
   for (let s = 1; s <= maxKnown; s++) {
     chips += `<button class="btn ghost small ${s === selectedSeason ? "on" : ""}" data-season="${s}" style="${s === selectedSeason ? "background:var(--accent);color:var(--accent-ink);border-color:transparent;" : ""}">${esc(seasonLabel(s))}</button>`;
   }
-  const modeTabs = [["all", "合計"], ["通常モード", "通常モード時"], ["男気モード", "男気モード時"]];
-  const modeChips = modeTabs.map(([val, label]) =>
-    `<button class="btn ghost small ${selectedMode === val ? "on" : ""}" data-mode-filter="${val}" style="${selectedMode === val ? "background:var(--accent);color:var(--accent-ink);border-color:transparent;" : ""}">${label}</button>`
+  const modeTabs = [["all", "合計", ""], ["通常モード", "通常モード時", "mode-normal"], ["男気モード", "男気モード時", "mode-otoko"]];
+  const modeChips = modeTabs.map(([val, label, cls]) =>
+    `<button class="btn ghost small ${cls} ${selectedMode === val ? "on" : ""}" data-mode-filter="${val}" style="${selectedMode === val && !cls ? "background:var(--accent);color:var(--accent-ink);border-color:transparent;" : ""}">${label}</button>`
   ).join("");
   el.innerHTML = `
     <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px">${chips}</div>
@@ -342,8 +342,8 @@ function renderRound() {
         ${activeIds.map((id) => `<label class="chk"><input type="checkbox" value="${id}" checked> ${esc(members[id].name)}</label>`).join("")}
       </div>
       <div class="mode-pick">
-        <button class="btn ghost on" data-mode="通常モード" id="modeA">通常モード</button>
-        <button class="btn ghost" data-mode="男気モード" id="modeB">男気モード</button>
+        <button class="btn ghost mode-normal on" data-mode="通常モード" id="modeA">通常モード</button>
+        <button class="btn ghost mode-otoko" data-mode="男気モード" id="modeB">男気モード</button>
       </div>
       <div class="sec-note" id="modeNote" style="margin-bottom:14px">じゃんけんに負けた人が負けです</div>
       <button class="btn" id="btnStart" style="width:100%">対戦を始める</button>`;
@@ -782,8 +782,8 @@ function renderRecords() {
     const editBox = myId ? `<div class="rec-edit" id="edit-${r.id}" style="display:none">
       <input type="date" class="field" id="editDate-${r.id}" value="${r.dateISO}">
       <div class="mode-pick" style="margin:10px 0">
-        <button class="btn ghost small ${r.mode === "通常モード" ? "on" : ""}" data-editmode="通常モード" data-rid="${r.id}">通常モード</button>
-        <button class="btn ghost small ${r.mode === "男気モード" ? "on" : ""}" data-editmode="男気モード" data-rid="${r.id}">男気モード</button>
+        <button class="btn ghost small mode-normal ${r.mode === "通常モード" ? "on" : ""}" data-editmode="通常モード" data-rid="${r.id}">通常モード</button>
+        <button class="btn ghost small mode-otoko ${r.mode === "男気モード" ? "on" : ""}" data-editmode="男気モード" data-rid="${r.id}">男気モード</button>
       </div>
       <select class="field" id="editLoser-${r.id}">
         ${r.participantIds.map((id) => `<option value="${id}" ${id === r.loserId ? "selected" : ""}>${esc(members[id]?.name ?? id)}</option>`).join("")}
@@ -806,7 +806,7 @@ function renderRecords() {
       <div class="rec-top">
         <div class="rec-date"><span class="d">${label}</span><span class="sec-note">(${wd})</span></div>
         <div style="display:flex;align-items:center;gap:8px">
-          <span class="badge ${r.mode === "男気モード" ? "otoko" : ""}">${r.mode}</span>
+          <span class="badge ${r.mode === "男気モード" ? "otoko" : "normal"}">${r.mode}</span>
           ${editBtn}
         </div>
       </div>

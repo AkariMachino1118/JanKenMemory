@@ -26,6 +26,8 @@
     --bad:#d64545; --bad-soft:rgba(214,69,69,0.13);
     --p1:#6b7280; --p2:#8b7355; --p3:#6b7a8f; --p4:#8f8a6b; --p5:#7a6b8f; --p6:#6b8f7f;
     --hand-gu:#2a78d6; --hand-choki:#eb6834; --hand-pa:#1baf7a;
+    --mode-normal:#2a78d6; --mode-normal-soft:rgba(42,120,214,0.12);
+    --mode-otoko:#d92c2c; --mode-otoko-soft:rgba(217,44,44,0.12);
     --shadow: 0 1px 2px rgba(26,26,28,0.05), 0 8px 20px -16px rgba(26,26,28,0.18);
   }
   @media (prefers-color-scheme: dark){
@@ -39,6 +41,8 @@
       --bad:#e2685f; --bad-soft:rgba(226,104,95,0.16);
       --p1:#9aa3b0; --p2:#b3a179; --p3:#94a6bd; --p4:#b3ac86; --p5:#a294b8; --p6:#8fb3a3;
       --hand-gu:#3987e5; --hand-choki:#d95926; --hand-pa:#199e70;
+      --mode-normal:#5b9cf0; --mode-normal-soft:rgba(91,156,240,0.16);
+      --mode-otoko:#ef6b62; --mode-otoko-soft:rgba(239,107,98,0.16);
       --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 10px 22px -14px rgba(0,0,0,0.5);
     }
   }
@@ -52,6 +56,8 @@
     --bad:#e2685f; --bad-soft:rgba(226,104,95,0.16);
     --p1:#9aa3b0; --p2:#b3a179; --p3:#94a6bd; --p4:#b3ac86; --p5:#a294b8; --p6:#8fb3a3;
       --hand-gu:#3987e5; --hand-choki:#d95926; --hand-pa:#199e70;
+      --mode-normal:#5b9cf0; --mode-normal-soft:rgba(91,156,240,0.16);
+      --mode-otoko:#ef6b62; --mode-otoko-soft:rgba(239,107,98,0.16);
     --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 10px 22px -14px rgba(0,0,0,0.5);
   }
   *{box-sizing:border-box;}
@@ -78,6 +84,10 @@
   button.btn:active{transform:translateY(1px) scale(.98);}
   button.btn.ghost{background:var(--surface-2);color:var(--ink);border:2px solid var(--line-strong);}
   button.btn.ghost.on{background:var(--accent);color:var(--accent-ink);border-color:transparent;}
+  button.btn.ghost.mode-normal{border-color:var(--mode-normal);background:var(--mode-normal-soft);color:var(--mode-normal);}
+  button.btn.ghost.mode-normal.on{background:var(--mode-normal);color:#fff;border-color:var(--mode-normal);}
+  button.btn.ghost.mode-otoko{border-color:var(--mode-otoko);background:var(--mode-otoko-soft);color:var(--mode-otoko);}
+  button.btn.ghost.mode-otoko.on{background:var(--mode-otoko);color:#fff;border-color:var(--mode-otoko);}
   button.btn.small{padding:6px 12px;font-size:12.5px;border-radius:10px;}
   button.btn:disabled{opacity:.45;cursor:default;}
   input.field{font-family:inherit;font-size:15px;padding:10px 12px;border-radius:12px;border:2px solid var(--line-strong);background:var(--surface);color:var(--ink);width:100%;}
@@ -176,7 +186,8 @@
   .rec-date{display:flex;align-items:baseline;gap:6px;}
   .rec-date .d{font-family:"JetBrains Mono",monospace;font-weight:700;font-size:14px;font-variant-numeric:tabular-nums;}
   .badge{font-size:10.5px;font-weight:700;padding:3px 8px;border-radius:6px;border:1px solid var(--line-strong);color:var(--ink-soft);letter-spacing:.02em;}
-  .badge.otoko{background:var(--accent-soft);color:var(--accent-strong);border-color:transparent;}
+  .badge.normal{background:var(--mode-normal-soft);color:var(--mode-normal);border-color:transparent;}
+  .badge.otoko{background:var(--mode-otoko-soft);color:var(--mode-otoko);border-color:transparent;}
   .rec-hands{display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap;}
   .hand-chip{flex:1;min-width:72px;display:flex;flex-direction:column;align-items:center;gap:3px;padding:8px 4px;border-radius:10px;background:var(--surface-2);border:1px solid var(--line);text-align:center;}
   .hand-chip .who{font-size:11px;font-weight:700;display:flex;align-items:center;gap:5px;}
@@ -295,6 +306,6 @@
   <footer>Firebase上で動作する共有ジャンケン帳 ・ データはこの友達グループだけで共有されます</footer>
 </div>
 
-<script type="module" src="./app.js?v=21"></script>
+<script type="module" src="./app.js?v=22"></script>
 </body>
 </html>
