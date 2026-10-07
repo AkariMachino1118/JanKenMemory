@@ -481,68 +481,228 @@ function realHand(h) {
   return HAND_ORDER.includes(h) ? h : null;
 }
 
-function emptyHands() { return { "グー": 0, "チョキ": 0, "パー": 0 }; }
-function handTotal(c) { return c["グー"] + c["チョキ"] + c["パー"]; }
+// Relative moves from a reference hand: keep it, switch to the hand that beats it ("up"),
+// or switch to the hand it beats ("down"). Habits like "after losing, switch to whatever
+// would have won" show up as a consistent relative move even when the absolute hands differ.
+const SHIFTS = ["stay", "up", "down"];
+const SHIFT_LABEL = { stay: "同じ手を続け", up: "前の手に勝つ手へ変え", down: "前の手に負ける手へ変え" };
+const OUTCOME_LABEL = { draw: "あいこの", won: "勝った", lost: "負けた" };
+function shiftOf(from, to) { return to === from ? "stay" : BEATS[to] === from ? "up" : "down"; }
+function applyShift(from, s) { return s === "stay" ? from : s === "up" ? HAND_ORDER.find((h) => BEATS[h] === from) : BEATS[from]; }
 
-function handProfile(id, mode) {
-  // every season counts; rounds of the other mode count half since people play them differently
-  const base = emptyHands(), first = emptyHands();
-  const trans = { "グー": emptyHands(), "チョキ": emptyHands(), "パー": emptyHands() };
-  for (const r of records) {
-    const w = r.mode === mode ? 1 : 0.5;
-    const ps = r.pitches || [];
-    ps.forEach((p, i) => {
-      const h = realHand(p.hands?.[id]);
-      if (!h) return;
-      base[h] += w;
-      if (i === 0) first[h] += w;
-      const prev = i > 0 ? realHand(ps[i - 1].hands?.[id]) : null;
-      if (prev) trans[prev][h] += w;
-    });
+function pitchThrowers(pitch) {
+  return Object.entries(pitch?.hands || {}).filter(([, h]) => realHand(h));
+}
+
+function pitchOutcome(pitch, id) {
+  // how the previous pitch went for this player: "draw" / "won" / "lost"
+  const throwers = pitchThrowers(pitch);
+  const mine = realHand(pitch?.hands?.[id]);
+  if (!mine) return null;
+  const types = new Set(throwers.map(([, h]) => h));
+  if (types.size !== 2) return "draw";
+  const other = [...types].find((h) => h !== mine);
+  return BEATS[mine] === other ? "won" : "lost";
+}
+
+function othersMajority(pitch, id) {
+  const c = {};
+  pitchThrowers(pitch).forEach(([pid, h]) => { if (pid !== id) c[h] = (c[h] || 0) + 1; });
+  const top = Object.entries(c).sort((a, b) => b[1] - a[1]);
+  return top.length && (top.length === 1 || top[0][1] > top[1][1]) ? top[0][0] : null;
+}
+
+function situation(id, mode, prior, poolSize, lastRound) {
+  // everything known about one player right before they throw
+  const i = prior.length;
+  const prevPitch = i ? prior[i - 1] : null;
+  const prev = prevPitch ? realHand(prevPitch.hands?.[id]) : null;
+  let streak = 0;
+  if (prev) {
+    for (let j = i - 1; j >= 0 && realHand(prior[j].hands?.[id]) === prev; j--) streak++;
   }
-  return { base, first, trans };
+  return {
+    id, mode, i, prev, streak, poolSize,
+    outcome: prev ? pitchOutcome(prevPitch, id) : null,
+    othersPrev: prev ? othersMajority(prevPitch, id) : null,
+    lastFirst: i === 0 && lastRound ? lastRound.first : null,
+    lastLost: lastRound ? lastRound.lost : null,
+  };
+}
+
+const POS_LABEL = ["1投目", "2投目", "3投目以降"];
+// Each expert looks at one aspect of the situation. `key` returns null when the expert has
+// nothing to say (e.g. no previous pitch yet); `anchor` makes it predict a relative move.
+const EXPERTS = [
+  { name: "base", key: (s) => `${s.id}|${s.mode}`,
+    say: (s, top) => `${s.mode === "男気モード" ? "男気" : "通常"}では${top}が多い` },
+  { name: "pos", key: (s) => `${s.id}|${s.mode}|${Math.min(s.i, 2)}`,
+    say: (s, top) => `${POS_LABEL[Math.min(s.i, 2)]}は${top}が多い` },
+  { name: "size", key: (s) => `${s.id}|${s.mode}|${s.poolSize <= 2 ? 2 : 3}|${s.i ? 1 : 0}`,
+    say: (s, top) => `${s.poolSize <= 2 ? "2人" : "3人以上"}の${s.i ? "途中" : "1投目"}は${top}が多い` },
+  { name: "trans", key: (s) => s.prev && `${s.id}|${s.mode}|${s.prev}`,
+    say: (s, top) => `前が${s.prev}の次は${top}が多い` },
+  { name: "react", key: (s) => s.outcome && `${s.id}|${s.mode}|${s.outcome}`, anchor: "prev",
+    say: (s, top, sh) => `${OUTCOME_LABEL[s.outcome]}後は${SHIFT_LABEL[sh]}がち` },
+  { name: "reactAny", key: (s) => s.outcome && `${s.id}|${s.outcome}|${s.prev === s.othersPrev ? "same" : "diff"}`, anchor: "prev",
+    say: (s, top, sh) => `${OUTCOME_LABEL[s.outcome]}後は${SHIFT_LABEL[sh]}がち（両モード）` },
+  { name: "streak", key: (s) => s.prev && `${s.id}|${Math.min(s.streak, 3)}`, anchor: "prev",
+    say: (s, top, sh) => s.streak >= 2 ? `${s.prev}が${s.streak}連続の後は${SHIFT_LABEL[sh]}がち` : `1回出した手の次は${SHIFT_LABEL[sh]}がち` },
+  { name: "oppPrev", key: (s) => s.othersPrev && `${s.id}|${s.othersPrev}`,
+    say: (s, top) => `相手が${s.othersPrev}を出した次は${top}が多い` },
+  { name: "opener", key: (s) => s.lastFirst && `${s.id}|${s.lastLost ? "L" : "W"}`, anchor: "lastFirst",
+    say: (s, top, sh) => `前回${s.lastLost ? "負けた" : "負けなかった"}時の1投目(${s.lastFirst})から${SHIFT_LABEL[sh].replace("前の手", "前回の手")}がち` },
+  { name: "group", key: (s) => s.outcome && `*|${s.mode}|${s.outcome}`, anchor: "prev",
+    say: (s, top, sh) => `みんな${OUTCOME_LABEL[s.outcome]}後は${SHIFT_LABEL[sh]}がち` },
+  { name: "groupOpen", key: (s) => !s.prev && `*|${s.mode}|open`,
+    say: (s, top) => `みんな1投目は${top}が多い` },
+];
+
+function anchorOf(ex, s) { return ex.anchor === "prev" ? s.prev : ex.anchor === "lastFirst" ? s.lastFirst : null; }
+
+function baseDist(tables, s) {
+  // the player's overall habit in this mode, with the other mode counting half, smoothed
+  // firmly toward even odds (backtests showed lighter smoothing overfits the small history)
+  const m = tables.get(`base|${s.id}|${s.mode}`) || [0, 0, 0];
+  const all = tables.get(`all|${s.id}`) || [0, 0, 0];
+  const c = m.map((v, k) => v + 0.5 * (all[k] - v) + 6);
+  const t = c[0] + c[1] + c[2];
+  return { p: c.map((v) => v / t), n: m[0] + m[1] + m[2] };
+}
+
+function expertDist(tables, ex, s, base) {
+  const key = ex.key(s);
+  if (!key) return null;
+  const anchor = anchorOf(ex, s);
+  if (ex.anchor && !anchor) return null;
+  const c = tables.get(`${ex.name}|${key}`) || [0, 0, 0];
+  const n = c[0] + c[1] + c[2];
+  // map relative-move counts onto absolute hands, then shrink toward the player's base habit
+  // so a situation seen only a couple of times can't swing the prediction on its own
+  const abs = [0, 0, 0];
+  c.forEach((v, k) => { abs[HAND_ORDER.indexOf(ex.anchor ? applyShift(anchor, SHIFTS[k]) : HAND_ORDER[k])] += v; });
+  const B = 6;
+  return { p: abs.map((v, k) => (v + B * base.p[k]) / (n + B)), n, c };
+}
+
+function bump(tables, key, k) {
+  const c = tables.get(key) || [0, 0, 0];
+  c[k]++;
+  tables.set(key, c);
+}
+
+function predictWith(model, s) {
+  const base = baseDist(model.tables, s);
+  const parts = [];
+  EXPERTS.forEach((ex, e) => {
+    const d = ex.name === "base" ? { p: base.p, n: base.n } : expertDist(model.tables, ex, s, base);
+    if (d) parts.push({ e, ex, d, w: Math.exp(model.eta * model.regret[e]) });
+  });
+  const wt = parts.reduce((a, x) => a + x.w, 0);
+  const p = [0, 0, 0];
+  parts.forEach((x) => x.d.p.forEach((v, k) => { p[k] += (x.w / wt) * v; }));
+  return { p, parts, wt };
+}
+
+let secretModel = null, secretModelSrc = null;
+function getSecretModel() {
+  // Replays every recorded pitch in date order. Before learning from each throw, every expert
+  // predicts it from what was known up to then; experts that would have predicted better than
+  // the blend gain weight (sleeping-experts Hedge). The blend's own hit rate is kept as an
+  // honest backtest of how well the model really reads each person.
+  if (secretModelSrc === records && secretModel) return secretModel;
+  const model = { tables: new Map(), regret: EXPERTS.map(() => 0), eta: 0.5, lastRound: {}, acc: {} };
+  const ordered = records.slice().sort((a, b) =>
+    a.dateISO < b.dateISO ? -1 : a.dateISO > b.dateISO ? 1 : (a.createdAt?.toMillis?.() ?? 0) - (b.createdAt?.toMillis?.() ?? 0));
+  for (const r of ordered) {
+    const ps = r.pitches || [];
+    ps.forEach((pitch, i) => {
+      const throwers = pitchThrowers(pitch);
+      for (const [id, hand] of throwers) {
+        const s = situation(id, r.mode, ps.slice(0, i), throwers.length, model.lastRound[id]);
+        const k = HAND_ORDER.indexOf(hand);
+        const pred = predictWith(model, s);
+        const lossMix = -Math.log(pred.p[k]);
+        pred.parts.forEach((x) => { model.regret[x.e] += lossMix + Math.log(x.d.p[k]); });
+        const acc = (model.acc[`${id}|${r.mode}`] ||= { hit: 0, n: 0 });
+        acc.n++;
+        if (pred.p.indexOf(Math.max(...pred.p)) === k) acc.hit++;
+        // learn the throw
+        bump(model.tables, `base|${id}|${r.mode}`, k);
+        bump(model.tables, `all|${id}`, k);
+        EXPERTS.forEach((ex) => {
+          if (ex.name === "base") return;
+          const key = ex.key(s);
+          if (!key) return;
+          const anchor = anchorOf(ex, s);
+          if (ex.anchor && !anchor) return;
+          bump(model.tables, `${ex.name}|${key}`, ex.anchor ? SHIFTS.indexOf(shiftOf(anchor, hand)) : k);
+        });
+      }
+    });
+    for (const id of r.participantIds || []) {
+      const first = realHand(ps[0]?.hands?.[id]);
+      if (first) model.lastRound[id] = { first, lost: r.loserId === id };
+    }
+  }
+  secretModel = model;
+  secretModelSrc = records;
+  return model;
 }
 
 function predictHand(id, ctx) {
-  const prof = handProfile(id, ctx.mode);
-  const baseTot = handTotal(prof.base);
-  let sit = null, label = "全体の傾向";
-  if (!ctx.pitches.length) {
-    sit = prof.first; label = "1投目の傾向";
-  } else {
-    const last = ctx.pitches[ctx.pitches.length - 1];
-    const prev = realHand(last?.hands?.[id]);
-    if (prev) { sit = prof.trans[prev]; label = `前が${prev}の後`; }
-  }
-  // blend the situational counts with the overall (Laplace-smoothed) habit, so a thin
-  // sample of the specific situation doesn't swing the prediction to 100%
-  const K = 3;
-  const sitTot = sit ? handTotal(sit) : 0;
+  const model = getSecretModel();
+  const s = situation(id, ctx.mode, ctx.pitches, ctx.pool.length, model.lastRound[id]);
+  const pred = predictWith(model, s);
   const p = {};
-  HAND_ORDER.forEach((h) => {
-    const baseP = (prof.base[h] + 1) / (baseTot + 3);
-    p[h] = ((sit ? sit[h] : 0) + K * baseP) / (sitTot + K);
-  });
-  return { p, label, ctxN: Math.round(sitTot), baseN: Math.round(baseTot) };
+  HAND_ORDER.forEach((h, k) => { p[h] = pred.p[k]; });
+  // the reasons shown are the experts pulling hardest toward the hand predicted overall
+  const topK = pred.p.indexOf(Math.max(...pred.p));
+  const top = HAND_ORDER[topK];
+  const reasons = pred.parts
+    .filter((x) => x.d.n >= 2 && x.d.p.indexOf(Math.max(...x.d.p)) === topK)
+    .map((x) => {
+      const sh = x.ex.anchor ? shiftOf(anchorOf(x.ex, s), top) : null;
+      const count = x.ex.anchor ? `${x.d.c[SHIFTS.indexOf(sh)]}/${x.d.n}回` : `${x.d.n}投`;
+      return { score: (x.w / pred.wt) * (x.d.p[topK] - 1 / 3), text: `${x.ex.say(s, top, sh)}（${count}）` };
+    })
+    .filter((x) => x.score > 0.002)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 2)
+    .map((x) => x.text);
+  const acc = model.acc[`${id}|${ctx.mode}`];
+  return { p, reasons, acc };
 }
 
 function adviseHands(opps, preds, mode) {
   // enumerate every combination of opponent hands and, for each of my 3 options, add up the
-  // chance I get out safely on this pitch vs. the chance I end up the sole loser right now
+  // chance I get out safely on this pitch vs. the chance I end up the sole loser right now;
+  // also remember the likeliest way the round carries on with me still in it
   const out = {};
-  HAND_ORDER.forEach((mine) => { out[mine] = { safe: 0, lose: 0 }; });
+  HAND_ORDER.forEach((mine) => { out[mine] = { safe: 0, lose: 0, next: null }; });
   const walk = (i, prob, hands) => {
     if (i === opps.length) {
       HAND_ORDER.forEach((mine) => {
         const all = [mine, ...hands];
         const types = new Set(all);
-        if (types.size !== 2) return; // あいこ
-        const [t1, t2] = [...types];
-        const winType = BEATS[t1] === t2 ? t1 : t2;
-        const loseType = winType === t1 ? t2 : t1;
-        const continueType = mode === "男気モード" ? winType : loseType;
-        if (mine !== continueType) out[mine].safe += prob;
-        else if (all.filter((h) => h === continueType).length === 1) out[mine].lose += prob;
+        let pool = null;
+        if (types.size !== 2) {
+          pool = [myId, ...opps];
+        } else {
+          const [t1, t2] = [...types];
+          const winType = BEATS[t1] === t2 ? t1 : t2;
+          const loseType = winType === t1 ? t2 : t1;
+          const continueType = mode === "男気モード" ? winType : loseType;
+          if (mine !== continueType) { out[mine].safe += prob; return; }
+          const cont = all.filter((h) => h === continueType).length;
+          if (cont === 1) { out[mine].lose += prob; return; }
+          pool = [myId, ...opps.filter((id, j) => hands[j] === continueType)];
+        }
+        if (!out[mine].next || prob > out[mine].next.prob) {
+          const pitchHands = { [myId]: mine };
+          opps.forEach((id, j) => { pitchHands[id] = hands[j]; });
+          out[mine].next = { prob, pool, hands: pitchHands, draw: types.size !== 2 };
+        }
       });
       return;
     }
@@ -552,17 +712,24 @@ function adviseHands(opps, preds, mode) {
   return out;
 }
 
+function bestOf(odds) {
+  return HAND_ORDER.slice().sort((a, b) => (odds[b].safe - odds[b].lose) - (odds[a].safe - odds[a].lose))[0];
+}
+
 function renderSecretAdvice(ctx) {
   // ctx = {mode, pool, pitches}: the round in progress, or a preview of the round about to start
   const opps = ctx.pool.filter((id) => id !== myId);
-  if (!opps.length || opps.length > 9) return "";
-  const preds = {};
-  opps.forEach((id) => { preds[id] = predictHand(id, ctx); });
-  const odds = adviseHands(opps, preds, ctx.mode);
-  const best = HAND_ORDER.slice().sort((a, b) => (odds[b].safe - odds[b].lose) - (odds[a].safe - odds[a].lose))[0];
+  if (!opps.length || opps.length > 7) return "";
   const pct = (v) => `${Math.round(v * 100)}%`;
   const otoko = ctx.mode === "男気モード";
   const handColor = { "グー": "var(--hand-gu)", "チョキ": "var(--hand-choki)", "パー": "var(--hand-pa)" };
+  const nameOf = (id) => esc(members[id]?.name ?? id);
+
+  const preds = {};
+  opps.forEach((id) => { preds[id] = predictHand(id, ctx); });
+  const odds = adviseHands(opps, preds, ctx.mode);
+  const best = bestOf(odds);
+  const pitchNo = ctx.pitches.length + 1;
 
   const options = HAND_ORDER.map((h) => `<div class="secret-opt ${h === best ? "best" : ""}">
       <b>${h}</b><span>抜け ${pct(odds[h].safe)}</span><span class="neg">負け確 ${pct(odds[h].lose)}</span>
@@ -574,17 +741,42 @@ function renderSecretAdvice(ctx) {
     const segs = HAND_ORDER.map((h) =>
       `<div class="habit-seg" style="width:${pr.p[h] * 100}%;background:${handColor[h]};color:#fff">${pr.p[h] >= 0.18 ? pct(pr.p[h]) : ""}</div>`
     ).join("");
+    const acc = pr.acc && pr.acc.n >= 5 ? `的中率 ${pct(pr.acc.hit / pr.acc.n)}（${pr.acc.n}投で検証）` : "データ少なめ";
     return `<div class="secret-opp">
-      <div class="habit-row-top"><span class="name"><span class="dot" style="background:${colorVar(id)}"></span>${esc(members[id]?.name ?? id)}：${top}が濃厚</span>
-      <span class="total">${esc(pr.label)} ${pr.ctxN}回 / 全${pr.baseN}投</span></div>
+      <div class="habit-row-top"><span class="name"><span class="dot" style="background:${colorVar(id)}"></span>${nameOf(id)}：${top}が濃厚</span>
+      <span class="total">${acc}</span></div>
       <div class="habit-bar">${segs}</div>
+      <div class="secret-why">${pr.reasons.length ? pr.reasons.map((t) => `・${esc(t)}`).join("<br>") : "・この場面でははっきりした癖なし"}</div>
     </div>`;
   }).join("");
 
+  // look ahead: assume the likeliest way the round continues with me still in it, and
+  // advise the following pitches the same way
+  const steps = [];
+  let c = { mode: ctx.mode, pool: ctx.pool, pitches: ctx.pitches };
+  let cur = { odds, best }, reach = 1;
+  for (let n = 0; n < 2; n++) {
+    const nx = cur.odds[cur.best].next;
+    if (!nx) break;
+    reach *= nx.prob;
+    if (reach < 0.02) break;
+    const scen = Object.entries(nx.hands).filter(([id]) => id !== myId).map(([id, h]) => `${nameOf(id)}${h}`).join("・");
+    c = { mode: c.mode, pool: nx.pool, pitches: [...c.pitches, { hands: nx.hands }] };
+    const o2 = c.pool.filter((id) => id !== myId);
+    if (!o2.length) break;
+    const pr2 = {};
+    o2.forEach((id) => { pr2[id] = predictHand(id, c); });
+    const od2 = adviseHands(o2, pr2, c.mode);
+    const b2 = bestOf(od2);
+    steps.push(`<div class="secret-step"><span class="sec-note">${nx.draw ? "あいこ" : "残り"}想定（${scen}）→</span> ${c.pitches.length + 1}投目は <b>${b2}</b> <span class="sec-note">抜け ${pct(od2[b2].safe)}</span></div>`);
+    cur = { odds: od2, best: b2 };
+  }
+
   return `<div class="secret">
-    <div class="secret-head">🔮 ${esc(members[myId]?.name ?? "")}さんへの裏アドバイス<span>${otoko ? "男気モード：じゃんけんに負ける手を狙います" : "過去の出し手から予測"}</span></div>
-    <div class="secret-best">${ctx.pitches.length ? `${ctx.pitches.length + 1}投目` : "1投目"}、あなたのおすすめは <b>${best}</b></div>
+    <div class="secret-head">🔮 ${esc(members[myId]?.name ?? "")}さんへの裏アドバイス<span>${otoko ? "男気モード：じゃんけんに負ける手を狙います" : "通常モード：場面ごとの癖から予測"}</span></div>
+    <div class="secret-best">${pitchNo}投目、あなたのおすすめは <b>${best}</b></div>
     <div class="secret-opts">${options}</div>
+    ${steps.length ? `<div class="secret-steps">${steps.join("")}</div>` : ""}
     ${oppRows}
   </div>`;
 }
