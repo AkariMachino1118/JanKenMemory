@@ -346,20 +346,34 @@ function renderRound() {
         <button class="btn ghost mode-otoko" data-mode="男気モード" id="modeB">男気モード</button>
       </div>
       <div class="sec-note" id="modeNote" style="margin-bottom:14px">じゃんけんに負けた人が負けです</div>
-      <button class="btn" id="btnStart" style="width:100%">対戦を始める</button>`;
+      <button class="btn" id="btnStart" style="width:100%">対戦を始める</button>
+      <div id="secretPreview"></div>`;
     let mode = "通常モード";
     const modeNote = document.getElementById("modeNote");
+    // 裏機能: preview the advice for the round about to start (handy when playing in person
+    // and entering hands afterwards); follows the checked participants and the chosen mode
+    const updatePreview = () => {
+      const box = document.getElementById("secretPreview");
+      if (!box) return;
+      const picked = [...document.querySelectorAll('#pPick input:checked')].map((i) => i.value);
+      box.innerHTML = secretOn && picked.includes(myId) && picked.length >= 2
+        ? renderSecretAdvice({ mode, pool: picked, pitches: [] }) : "";
+    };
+    document.querySelectorAll('#pPick input').forEach((i) => { i.onchange = updatePreview; });
+    updatePreview();
     document.getElementById("modeA").onclick = () => {
       mode = "通常モード";
       document.getElementById("modeA").classList.add("on");
       document.getElementById("modeB").classList.remove("on");
       modeNote.textContent = "じゃんけんに負けた人が負けです";
+      updatePreview();
     };
     document.getElementById("modeB").onclick = () => {
       mode = "男気モード";
       document.getElementById("modeB").classList.add("on");
       document.getElementById("modeA").classList.remove("on");
       modeNote.textContent = "通常と逆に、じゃんけんに勝った人が負けです";
+      updatePreview();
     };
     document.getElementById("btnStart").onclick = async () => {
       const picked = [...document.querySelectorAll('#pPick input:checked')].map((i) => i.value);
@@ -418,7 +432,8 @@ function renderRound() {
         `<div>${Object.entries(p.hands).map(([id, h]) => `${(members[id]?.name ?? id)[0]}:${h}`).join(" ")} <span class="res">→ ${p.result}</span></div>`
       ).join("")}</div>` : "";
 
-  const secretHtml = secretOn && inPool ? renderSecretAdvice() : "";
+  const secretHtml = secretOn && inPool
+    ? renderSecretAdvice({ mode: session.mode, pool: session.pool, pitches: session.pitches || [] }) : "";
 
   el.innerHTML = `<div class="pool-chips">${chips}</div>${actionHtml}${secretHtml}${logHtml}${cancelHtml}`;
 
@@ -435,8 +450,9 @@ function renderRound() {
 
 // ---------- secret advisor (裏機能) ----------
 // Tap the page title 5 times in a row to toggle. Only the logged-in member sees it, only on
-// their own device, and only while they are still in the pool of the round in progress.
-// It predicts each opponent's next hand from their past throws and suggests what to throw.
+// their own device: before a round (if they are checked as a participant) and while they are
+// still in the pool of the round in progress. It predicts each opponent's next hand from their
+// past throws and suggests what the logged-in member should throw.
 let secretOn = (() => { try { return localStorage.getItem("jankenSecret") === "1"; } catch (e) { return false; } })();
 let secretTaps = 0, secretTapTimer = null;
 document.querySelector("header.top h1.title").addEventListener("click", () => {
@@ -487,30 +503,30 @@ function handProfile(id, mode) {
   return { base, first, trans };
 }
 
-function predictHand(id) {
-  const prof = handProfile(id, session.mode);
+function predictHand(id, ctx) {
+  const prof = handProfile(id, ctx.mode);
   const baseTot = handTotal(prof.base);
-  let ctx = null, label = "全体の傾向";
-  if (session.pitchIndex === 0) {
-    ctx = prof.first; label = "1投目の傾向";
+  let sit = null, label = "全体の傾向";
+  if (!ctx.pitches.length) {
+    sit = prof.first; label = "1投目の傾向";
   } else {
-    const last = (session.pitches || [])[session.pitches.length - 1];
+    const last = ctx.pitches[ctx.pitches.length - 1];
     const prev = realHand(last?.hands?.[id]);
-    if (prev) { ctx = prof.trans[prev]; label = `前が${prev}の後`; }
+    if (prev) { sit = prof.trans[prev]; label = `前が${prev}の後`; }
   }
   // blend the situational counts with the overall (Laplace-smoothed) habit, so a thin
   // sample of the specific situation doesn't swing the prediction to 100%
   const K = 3;
-  const ctxTot = ctx ? handTotal(ctx) : 0;
+  const sitTot = sit ? handTotal(sit) : 0;
   const p = {};
   HAND_ORDER.forEach((h) => {
     const baseP = (prof.base[h] + 1) / (baseTot + 3);
-    p[h] = ((ctx ? ctx[h] : 0) + K * baseP) / (ctxTot + K);
+    p[h] = ((sit ? sit[h] : 0) + K * baseP) / (sitTot + K);
   });
-  return { p, label, ctxN: Math.round(ctxTot), baseN: Math.round(baseTot) };
+  return { p, label, ctxN: Math.round(sitTot), baseN: Math.round(baseTot) };
 }
 
-function adviseHands(opps, preds) {
+function adviseHands(opps, preds, mode) {
   // enumerate every combination of opponent hands and, for each of my 3 options, add up the
   // chance I get out safely on this pitch vs. the chance I end up the sole loser right now
   const out = {};
@@ -524,7 +540,7 @@ function adviseHands(opps, preds) {
         const [t1, t2] = [...types];
         const winType = BEATS[t1] === t2 ? t1 : t2;
         const loseType = winType === t1 ? t2 : t1;
-        const continueType = session.mode === "男気モード" ? winType : loseType;
+        const continueType = mode === "男気モード" ? winType : loseType;
         if (mine !== continueType) out[mine].safe += prob;
         else if (all.filter((h) => h === continueType).length === 1) out[mine].lose += prob;
       });
@@ -536,15 +552,16 @@ function adviseHands(opps, preds) {
   return out;
 }
 
-function renderSecretAdvice() {
-  const opps = session.pool.filter((id) => id !== myId);
+function renderSecretAdvice(ctx) {
+  // ctx = {mode, pool, pitches}: the round in progress, or a preview of the round about to start
+  const opps = ctx.pool.filter((id) => id !== myId);
   if (!opps.length || opps.length > 9) return "";
   const preds = {};
-  opps.forEach((id) => { preds[id] = predictHand(id); });
-  const odds = adviseHands(opps, preds);
+  opps.forEach((id) => { preds[id] = predictHand(id, ctx); });
+  const odds = adviseHands(opps, preds, ctx.mode);
   const best = HAND_ORDER.slice().sort((a, b) => (odds[b].safe - odds[b].lose) - (odds[a].safe - odds[a].lose))[0];
   const pct = (v) => `${Math.round(v * 100)}%`;
-  const otoko = session.mode === "男気モード";
+  const otoko = ctx.mode === "男気モード";
   const handColor = { "グー": "var(--hand-gu)", "チョキ": "var(--hand-choki)", "パー": "var(--hand-pa)" };
 
   const options = HAND_ORDER.map((h) => `<div class="secret-opt ${h === best ? "best" : ""}">
@@ -565,8 +582,8 @@ function renderSecretAdvice() {
   }).join("");
 
   return `<div class="secret">
-    <div class="secret-head">🔮 裏アドバイス<span>${otoko ? "男気モード：じゃんけんに負ける手を狙います" : "過去の出し手から予測"}</span></div>
-    <div class="secret-best">おすすめは <b>${best}</b></div>
+    <div class="secret-head">🔮 ${esc(members[myId]?.name ?? "")}さんへの裏アドバイス<span>${otoko ? "男気モード：じゃんけんに負ける手を狙います" : "過去の出し手から予測"}</span></div>
+    <div class="secret-best">${ctx.pitches.length ? `${ctx.pitches.length + 1}投目` : "1投目"}、あなたのおすすめは <b>${best}</b></div>
     <div class="secret-opts">${options}</div>
     ${oppRows}
   </div>`;
