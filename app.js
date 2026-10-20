@@ -949,19 +949,22 @@ function renderStandings() {
 }
 
 function recordAmounts(r) {
-  // {memberId: signedAmount} for one record — winners positive, the loser negative.
-  // Falls back to the old single `amount` field (attributed entirely to the loser)
-  // for records saved before per-player amounts existed.
+  // {memberId: signedAmount} for one record — each winner gets their own amount,
+  // and the loser pays the winners' total. Records with no winner amounts keep the
+  // loser's own entry (or the old single `amount` field from before per-player amounts).
   const out = {};
-  if (r.amounts) {
-    for (const [id, v] of Object.entries(r.amounts)) {
-      const n = Number(v) || 0;
-      if (n) out[id] = id === r.loserId ? -n : n;
-    }
-  } else if (r.amount && r.loserId) {
-    out[r.loserId] = -Number(r.amount);
+  let winnersTotal = 0;
+  for (const [id, v] of Object.entries(r.amounts || {})) {
+    const n = Number(v) || 0;
+    if (n && id !== r.loserId) { out[id] = n; winnersTotal += n; }
   }
+  const loserPays = winnersTotal || legacyLoserAmount(r);
+  if (loserPays && r.loserId) out[r.loserId] = -loserPays;
   return out;
+}
+
+function legacyLoserAmount(r) {
+  return Number((r.amounts || {})[r.loserId]) || (!r.amounts && Number(r.amount)) || 0;
 }
 
 function renderPayments() {
@@ -1138,13 +1141,13 @@ function renderRecords() {
       <select class="field" id="editLoser-${r.id}">
         ${r.participantIds.map((id) => `<option value="${id}" ${id === r.loserId ? "selected" : ""}>${esc(members[id]?.name ?? id)}</option>`).join("")}
       </select>
-      <div class="sec-note" style="margin-top:10px">金額（勝った人はプラス、負けた人はマイナスとして集計されます）</div>
+      <div class="sec-note" style="margin-top:10px">金額（勝った人の金額を入力すると、負けた人はその合計を支払います）</div>
       ${r.participantIds.map((id) => `
         <div style="display:flex;align-items:center;gap:8px;margin-top:6px">
           <span style="flex:0 0 76px;font-size:12.5px;display:flex;align-items:center;gap:5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
             <span class="dot" style="background:${colorVar(id)}"></span>${esc(members[id]?.name ?? id)}
           </span>
-          <input type="number" inputmode="numeric" min="0" step="1" class="field" id="editAmt-${r.id}-${id}" placeholder="0" value="${(r.amounts && r.amounts[id]) || (!r.amounts && id === r.loserId && r.amount) || ""}">
+          <input type="number" inputmode="numeric" min="0" step="1" class="field" id="editAmt-${r.id}-${id}" data-amtrid="${r.id}" placeholder="0" value="${(r.amounts && id !== r.loserId && r.amounts[id]) || ""}">
         </div>`).join("")}
       <div style="display:flex;gap:8px;margin-top:10px">
         <button class="btn small" data-save="${r.id}" style="flex:1">保存</button>
@@ -1167,10 +1170,41 @@ function renderRecords() {
     </div>`;
   }).join("");
 
+  const syncLoserAmount = (rid) => {
+    // The loser's field is not typed into: it shows the winners' total it pays.
+    const rec = records.find((x) => x.id === rid);
+    const loserId = document.getElementById("editLoser-" + rid).value;
+    let total = 0;
+    (rec ? rec.participantIds : []).forEach((id) => {
+      const input = document.getElementById(`editAmt-${rid}-${id}`);
+      if (!input) return;
+      input.disabled = id === loserId;
+      if (id !== loserId) total += Math.max(0, Number(input.value) || 0);
+    });
+    const loserInput = document.getElementById(`editAmt-${rid}-${loserId}`);
+    if (loserInput) loserInput.value = total || "";
+    if (rec && !total && loserInput && loserId === rec.loserId) {
+      // No winner amounts: keep the loser's own amount from an older record.
+      loserInput.value = legacyLoserAmount(rec) || "";
+    }
+  };
   el.querySelectorAll("[data-toggleedit]").forEach((b) => {
     b.onclick = () => {
       const box = document.getElementById("edit-" + b.dataset.toggleedit);
       box.style.display = box.style.display === "none" ? "block" : "none";
+      syncLoserAmount(b.dataset.toggleedit);
+    };
+  });
+  el.querySelectorAll("[data-amtrid]").forEach((input) => {
+    input.oninput = () => syncLoserAmount(input.dataset.amtrid);
+  });
+  el.querySelectorAll('select[id^="editLoser-"]').forEach((sel) => {
+    sel.onchange = () => {
+      const rid = sel.id.slice("editLoser-".length);
+      // Whoever becomes the loser no longer has a winner amount of their own.
+      const input = document.getElementById(`editAmt-${rid}-${sel.value}`);
+      if (input) input.value = "";
+      syncLoserAmount(rid);
     };
   });
   el.querySelectorAll("[data-editmode]").forEach((b) => {
@@ -1201,8 +1235,13 @@ function renderRecords() {
       (rec ? rec.participantIds : []).forEach((id) => {
         const input = document.getElementById(`editAmt-${rid}-${id}`);
         const v = input ? Math.max(0, Number(input.value) || 0) : 0;
-        if (v) amounts[id] = v;
+        if (v && id !== loserId) amounts[id] = v;
       });
+      if (!Object.keys(amounts).length) {
+        // Nothing entered for the winners: keep an older record's loser-only amount.
+        const kept = Number(document.getElementById(`editAmt-${rid}-${loserId}`)?.value) || 0;
+        if (kept) amounts[loserId] = kept;
+      }
       await updateDoc(doc(recordsCol, rid), { dateISO, mode, loserId, amounts, streakText: null });
       document.getElementById("edit-" + rid).style.display = "none";
     };
