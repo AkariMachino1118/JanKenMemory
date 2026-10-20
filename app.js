@@ -1141,6 +1141,8 @@ function renderRecords() {
       <select class="field" id="editLoser-${r.id}">
         ${r.participantIds.map((id) => `<option value="${id}" ${id === r.loserId ? "selected" : ""}>${esc(members[id]?.name ?? id)}</option>`).join("")}
       </select>
+      <div class="sec-note" style="margin-top:10px">メモ（ひとこと）</div>
+      <input type="text" class="field" id="editMemo-${r.id}" maxlength="40" placeholder="例：コンビニでアイス" value="${esc(r.memo || "")}" style="margin-top:6px">
       <div class="sec-note" style="margin-top:10px">金額（勝った人の金額を入力すると、負けた人はその合計を支払います）</div>
       ${r.participantIds.map((id) => `
         <div style="display:flex;align-items:center;gap:8px;margin-top:6px">
@@ -1164,6 +1166,7 @@ function renderRecords() {
         </div>
       </div>
       <div class="rec-hands">${hands}</div>
+      ${r.memo ? `<div class="memo">📝 ${esc(r.memo)}</div>` : ""}
       ${r.streakText ? `<div class="streak">🔥 ${esc(r.streakText)}</div>` : ""}
       ${pitches ? `<details><summary>投球の詳細（${(r.pitches || []).length}球）</summary><div class="pitch-list">${pitches}</div></details>` : ""}
       ${editBox}
@@ -1242,7 +1245,8 @@ function renderRecords() {
         const kept = Number(document.getElementById(`editAmt-${rid}-${loserId}`)?.value) || 0;
         if (kept) amounts[loserId] = kept;
       }
-      await updateDoc(doc(recordsCol, rid), { dateISO, mode, loserId, amounts, streakText: null });
+      const memo = document.getElementById("editMemo-" + rid).value.trim().slice(0, 40);
+      await updateDoc(doc(recordsCol, rid), { dateISO, mode, loserId, amounts, memo, streakText: null });
       document.getElementById("edit-" + rid).style.display = "none";
     };
   });
