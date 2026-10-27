@@ -926,12 +926,15 @@ function renderStandings() {
   const stats = computeSeasonStats(visibleRecords());
   const ids = memberOrder.filter((id) => members[id] && stats[id]);
   if (!ids.length) { el.innerHTML = `<div class="empty">${esc(seasonLabel(selectedSeason))}の対戦記録がありません</div>`; return; }
-  const ranked = ids.slice().sort((a, b) => stats[b].points - stats[a].points);
-  let lastPoints = null, lastRank = 0;
+  // 貯金が同じなら敗率が低い方を上位に（割り算の誤差を避けるため交差乗算で比較）
+  const cmp = (a, b) => (stats[b].points - stats[a].points)
+    || (stats[a].losses * stats[b].games - stats[b].losses * stats[a].games);
+  const ranked = ids.slice().sort(cmp);
+  let lastRank = 0;
   el.innerHTML = ranked.map((id, i) => {
     const m = members[id];
     const s = stats[id];
-    if (s.points !== lastPoints) { lastRank = i + 1; lastPoints = s.points; }
+    if (i === 0 || cmp(ranked[i - 1], id) !== 0) lastRank = i + 1;
     const good = s.points >= 0;
     const rate = s.games ? ((s.losses / s.games) * 100).toFixed(1) : "0.0";
     return `<div class="card stand-card">
