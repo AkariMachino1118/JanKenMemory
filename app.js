@@ -923,9 +923,18 @@ function renderAll() {
 
 function renderStandings() {
   const el = document.getElementById("standings");
-  const stats = computeSeasonStats(visibleRecords());
-  const ids = memberOrder.filter((id) => members[id] && stats[id]);
-  if (!ids.length) { el.innerHTML = `<div class="empty">${esc(seasonLabel(selectedSeason))}の対戦記録がありません</div>`; return; }
+  const recs = visibleRecords();
+  const stats = computeSeasonStats(recs);
+  const players = memberOrder.filter((id) => members[id] && stats[id]);
+  if (!players.length) { el.innerHTML = `<div class="empty">${esc(seasonLabel(selectedSeason))}の対戦記録がありません</div>`; return; }
+  // 順位表に載るのは総試合数の6割以上に参加した人のみ（整数で比較して誤差を避ける）
+  const totalGames = recs.filter((r) => r.loserId).length;
+  const qualifies = (id) => stats[id].games * 10 >= totalGames * 6;
+  const ids = players.filter(qualifies);
+  const others = players.filter((id) => !qualifies(id));
+  const note = others.length
+    ? `<div class="stand-note">規定参加数（総試合数${totalGames}の6割）未満のため対象外：${others.map((id) => `${esc(members[id].name)}（${stats[id].games}）`).join("、")}</div>`
+    : "";
   // 貯金が同じなら敗率が低い方を上位に（割り算の誤差を避けるため交差乗算で比較）
   const cmp = (a, b) => (stats[b].points - stats[a].points)
     || (stats[a].losses * stats[b].games - stats[b].losses * stats[a].games);
@@ -941,14 +950,14 @@ function renderStandings() {
       <div class="rank">${lastRank}位</div>
       <div>
         <div class="stand-name-row"><span class="dot" style="background:${colorVar(id)}"></span><span class="stand-name">${esc(m.name)}</span></div>
-        <div class="stand-meta">参加 ${s.games}・負け ${s.losses}・敗率 ${rate}%</div>
+        <div class="stand-meta">参加 ${s.games}・負け ${s.losses}・<span class="stand-rate">敗率 ${rate}%</span></div>
       </div>
       <div class="stand-points">
         <div class="pts-val" style="color:${good ? "var(--good)" : "var(--bad)"}">${s.points > 0 ? "+" : ""}${s.points}<span style="font-size:12px;font-weight:500;">pt</span></div>
         <div class="pill ${good ? "good" : "bad"}">${good ? "貯金" : "借金"}</div>
       </div>
     </div>`;
-  }).join("");
+  }).join("") + note;
 }
 
 function recordAmounts(r) {
