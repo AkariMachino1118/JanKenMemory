@@ -927,13 +927,17 @@ function renderStandings() {
   const stats = computeSeasonStats(recs);
   const players = memberOrder.filter((id) => members[id] && stats[id]);
   if (!players.length) { el.innerHTML = `<div class="empty">${esc(seasonLabel(selectedSeason))}の対戦記録がありません</div>`; return; }
-  // 順位表に載るのは総試合数の6割以上に参加した人のみ（整数で比較して誤差を避ける）
-  const totalGames = recs.filter((r) => r.loserId).length;
-  const qualifies = (id) => stats[id].games * 10 >= totalGames * 6;
+  // 順位表に載るのは参加数の中央値の6割（小数点以下切り捨て）以上に参加した人のみ
+  // 中央値は2倍した整数で扱い、割り算の誤差を避ける
+  const sortedGames = players.map((id) => stats[id].games).sort((a, b) => a - b);
+  const mid = sortedGames.length >> 1;
+  const median2 = sortedGames.length % 2 ? sortedGames[mid] * 2 : sortedGames[mid - 1] + sortedGames[mid];
+  const minGames = Math.floor(median2 * 3 / 10);
+  const qualifies = (id) => stats[id].games >= minGames;
   const ids = players.filter(qualifies);
   const others = players.filter((id) => !qualifies(id));
   const note = others.length
-    ? `<div class="stand-note">規定参加数（総試合数${totalGames}の6割）未満のため対象外：${others.map((id) => `${esc(members[id].name)}（${stats[id].games}）`).join("、")}</div>`
+    ? `<div class="stand-note">規定参加数${minGames}（参加数の中央値の6割）未満のため対象外：${others.map((id) => `${esc(members[id].name)}（${stats[id].games}）`).join("、")}</div>`
     : "";
   // 貯金が同じなら敗率が低い方を上位に（割り算の誤差を避けるため交差乗算で比較）
   const cmp = (a, b) => (stats[b].points - stats[a].points)
