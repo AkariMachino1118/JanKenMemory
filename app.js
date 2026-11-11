@@ -1423,7 +1423,7 @@ function renderTrend(animate) {
       <text x="${L - 6}" y="${y(v) + 4}" text-anchor="end" class="tick">${fmt(v)}</text>`).join("")}
     ${marks.map((m) => `<text x="${x(m.i)}" y="${H - 6}" text-anchor="${m.i === N ? "end" : "middle"}" class="tick">${m.label}</text>`).join("")}
     <defs><clipPath id="trendClip"><rect x="0" y="0" width="${grow ? L : W}" height="${H}">${grow
-      ? `<animate attributeName="width" from="${L}" to="${W - R + 6}" dur="0.9s" fill="freeze" calcMode="spline" keyTimes="0;1" keySplines="0.3 0 0.2 1"/>` : ""}</rect></clipPath></defs>
+      ? `<animate attributeName="width" from="${L}" to="${W - R + 6}" dur="1.3s" fill="freeze" calcMode="spline" keyTimes="0;1" keySplines="0.3 0 0.2 1"/>` : ""}</rect></clipPath></defs>
     <g clip-path="url(#trendClip)">
     ${ids.map((id) => `<polyline fill="none" style="stroke:${colorVar(id)}" class="line" points="${series[id].map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ")}"/>
       ${N <= 31 ? series[id].slice(1, -1).map((v, i) => `<circle cx="${x(i + 1).toFixed(1)}" cy="${y(v).toFixed(1)}" r="2.2" style="fill:${colorVar(id)}"/>`).join("") : ""}
