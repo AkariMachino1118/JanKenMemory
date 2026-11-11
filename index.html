@@ -227,6 +227,45 @@
   .secret-steps{display:flex;flex-direction:column;gap:4px;font-size:13px;padding:8px 10px;border-radius:10px;background:var(--surface);border:1px solid var(--line);}
   .secret-step b{font-size:14px;}
   .toast{position:fixed;left:50%;bottom:28px;transform:translateX(-50%);z-index:70;background:var(--accent);color:var(--accent-ink);padding:9px 16px;border-radius:999px;font-size:13px;font-weight:700;box-shadow:var(--shadow);}
+  .secret table.mini{width:100%;border-collapse:collapse;font-size:12px;}
+  table.mini th,table.mini td{padding:5px 4px;text-align:right;border-top:1px solid var(--line);font-variant-numeric:tabular-nums;}
+  table.mini thead th{border-top:none;color:var(--muted);font-size:10.5px;font-weight:700;}
+  table.mini tbody th{text-align:left;font-weight:700;}
+  table.mini td{font-family:"JetBrains Mono",monospace;font-weight:700;}
+  table.mini tr.ref th,table.mini tr.ref td{color:var(--muted);font-weight:500;}
+  .hitbar{position:relative;height:10px;border-radius:5px;background:var(--surface);border:1px solid var(--line);overflow:hidden;}
+  .hitbar .fill{height:100%;background:var(--muted);}
+  .hitbar .fill.good{background:var(--good);}
+  .hitbar .fill.bad{background:var(--bad);}
+  .hitbar .mark{position:absolute;top:0;bottom:0;left:33.3%;width:2px;background:var(--ink);}
+  .trend-svg{display:block;width:100%;height:auto;}
+  .trend-svg .grid{stroke:var(--line);stroke-width:1;}
+  .trend-svg .zero{stroke:var(--line-strong);stroke-width:1.5;}
+  .trend-svg .tick{font-size:11px;fill:var(--muted);font-family:"JetBrains Mono",monospace;}
+  .trend-svg .line{stroke-width:2.5;stroke-linejoin:round;stroke-linecap:round;}
+  .trend-svg .name{font-size:11.5px;font-weight:700;}
+  .settle{display:flex;flex-direction:column;gap:10px;}
+  .settle-head{font-size:13.5px;font-weight:900;display:flex;justify-content:space-between;align-items:baseline;gap:8px;}
+  .settle-head span{font-size:11px;font-weight:500;color:var(--muted);}
+  .settle-row{display:flex;align-items:center;gap:10px;font-size:13.5px;flex-wrap:wrap;}
+  .settle-who{flex:1;min-width:120px;display:flex;align-items:center;gap:6px;font-weight:700;}
+  .settle-who .arrow{color:var(--muted);margin:0 2px;}
+  .settle-amt{font-family:"JetBrains Mono",monospace;font-weight:700;font-variant-numeric:tabular-nums;}
+  .settle-ok{font-size:13px;color:var(--good);font-weight:700;}
+  .settle details{font-size:12px;}
+  .settle summary{cursor:pointer;color:var(--muted);font-weight:700;margin-bottom:6px;}
+  .settle details .settle-row{color:var(--ink-soft);font-size:12.5px;margin-top:6px;}
+  .match-cap{font-size:11.5px;color:var(--muted);padding:0 6px 6px;}
+  .match-cap b{color:var(--ink);font-size:12.5px;}
+  table.heat td.cell .of{font-size:10px;font-weight:500;color:var(--ink-soft);}
+  .title-row{display:flex;align-items:center;gap:12px;padding:11px 16px;border-top:1px solid var(--line);}
+  .title-row:first-child{border-top:none;}
+  .title-row .icon{font-size:18px;width:24px;text-align:center;flex:none;}
+  .title-row .body{flex:1;min-width:0;}
+  .title-row .t{font-size:11.5px;color:var(--muted);font-weight:700;}
+  .title-row .who{font-size:14px;font-weight:700;overflow-wrap:anywhere;}
+  .title-row .val{font-family:"JetBrains Mono",monospace;font-size:19px;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap;}
+  .title-row .unit{font-size:11px;font-weight:500;margin-left:2px;}
   .empty{padding:20px;text-align:center;color:var(--muted);font-size:13px;}
   footer{margin-top:44px;padding-top:20px;border-top:1px solid var(--line);font-size:11.5px;color:var(--muted);text-align:center;}
 </style>
@@ -283,6 +322,11 @@
     <div class="card pad" id="round"></div>
   </section>
 
+  <section id="sec-secret" style="display:none">
+    <div class="sec-head"><h2>🔮 裏分析の振り返り</h2><span class="sec-note">あなたにだけ表示</span></div>
+    <div class="card pad" id="secretStats"></div>
+  </section>
+
   <section id="sec-members">
     <div class="sec-head"><h2>メンバー</h2><span class="sec-note">追加・脱退はいつでも</span></div>
     <div class="card" id="members"></div>
@@ -293,9 +337,15 @@
     <div class="standings" id="standings"></div>
   </section>
 
+  <section id="sec-trend">
+    <div class="sec-head"><h2>貯金の推移</h2><span class="sec-note">対戦ごとの勝敗ポイント</span></div>
+    <div class="card trend-card" id="trend"></div>
+  </section>
+
   <section id="sec-payments">
     <div class="sec-head"><h2>支払い金額</h2><span class="sec-note">負けた人の合計</span></div>
     <div class="standings" id="payments"></div>
+    <div id="settle" style="margin-top:10px"></div>
   </section>
 
   <section id="sec-habits">
@@ -318,6 +368,16 @@
     <div class="card trend-card" id="monthly"></div>
   </section>
 
+  <section id="sec-matchups">
+    <div class="sec-head"><h2>相性表</h2><span class="sec-note">誰と一緒だと負けやすいか</span></div>
+    <div class="card heat-card" id="matchups"></div>
+  </section>
+
+  <section id="sec-titles">
+    <div class="sec-head"><h2>記録・称号</h2><span class="sec-note"></span></div>
+    <div class="card" id="titles"></div>
+  </section>
+
   <section id="sec-records">
     <div class="sec-head"><h2>対戦記録</h2><span class="sec-note" id="rec-count"></span></div>
     <div class="records" id="records"></div>
@@ -326,6 +386,6 @@
   <footer>Firebase上で動作する共有ジャンケン帳 ・ データはこの友達グループだけで共有されます</footer>
 </div>
 
-<script type="module" src="./app.js?v=28"></script>
+<script type="module" src="./app.js?v=29"></script>
 </body>
 </html>
