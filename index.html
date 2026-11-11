@@ -247,6 +247,8 @@
   .hitbar .fill.good{background:var(--good);}
   .hitbar .fill.bad{background:var(--bad);}
   .hitbar .mark{position:absolute;top:0;bottom:0;left:33.3%;width:2px;background:var(--ink);}
+  .trend-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px;flex-wrap:wrap;}
+  .trend-units{display:flex;gap:6px;}
   .trend-svg{display:block;width:100%;height:auto;}
   .trend-svg .grid{stroke:var(--line);stroke-width:1;}
   .trend-svg .zero{stroke:var(--line-strong);stroke-width:1.5;}
@@ -345,7 +347,7 @@
   </section>
 
   <section id="sec-trend">
-    <div class="sec-head"><h2>貯金の推移</h2><span class="sec-note">対戦ごとの勝敗ポイント</span></div>
+    <div class="sec-head"><h2>貯金の推移</h2><span class="sec-note">勝敗ポイントの積み上げ</span></div>
     <div class="card trend-card" id="trend"></div>
   </section>
 
@@ -393,6 +395,6 @@
   <footer>Firebase上で動作する共有ジャンケン帳 ・ データはこの友達グループだけで共有されます</footer>
 </div>
 
-<script type="module" src="./app.js?v=34"></script>
+<script type="module" src="./app.js?v=35"></script>
 </body>
 </html>
