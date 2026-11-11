@@ -1373,7 +1373,7 @@ function trendBucket(iso) {
   return { key: iso, label: md(dt) };
 }
 
-function renderTrend() {
+function renderTrend(animate) {
   const el = document.getElementById("trend");
   const recs = visibleRecords().filter((r) => r.loserId);
   const ids = memberOrder.filter((id) => members[id] && recs.some((r) => r.participantIds.includes(id)));
@@ -1414,22 +1414,28 @@ function renderTrend() {
   const step = Math.ceil(N / 6);
   const marks = buckets.map((b, i) => ({ i: i + 1, label: b.label })).filter((m) => (N - m.i) % step === 0);
   const unit = TREND_UNITS.find((u) => u[0] === trendUnit);
+  // after picking a period the lines are drawn in from the left (skipped for reduced motion)
+  const grow = animate === true && !(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
   const chips = TREND_UNITS.map(([val, label]) => `<button class="btn ghost small ${val === trendUnit ? "on" : ""}" data-trend-unit="${val}">${label}</button>`).join("");
   el.innerHTML = `<div class="trend-head"><div class="trend-units">${chips}</div><span class="sec-note">${N}${unit[2]}分・${recs.length}戦</span></div>
   <svg class="trend-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="貯金・借金の推移（${unit[1]}）">
     ${ticks.map((v) => `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" class="${v === 0 ? "zero" : "grid"}"/>
       <text x="${L - 6}" y="${y(v) + 4}" text-anchor="end" class="tick">${fmt(v)}</text>`).join("")}
     ${marks.map((m) => `<text x="${x(m.i)}" y="${H - 6}" text-anchor="${m.i === N ? "end" : "middle"}" class="tick">${m.label}</text>`).join("")}
+    <defs><clipPath id="trendClip"><rect x="0" y="0" width="${grow ? L : W}" height="${H}">${grow
+      ? `<animate attributeName="width" from="${L}" to="${W - R + 6}" dur="0.9s" fill="freeze" calcMode="spline" keyTimes="0;1" keySplines="0.3 0 0.2 1"/>` : ""}</rect></clipPath></defs>
+    <g clip-path="url(#trendClip)">
     ${ids.map((id) => `<polyline fill="none" style="stroke:${colorVar(id)}" class="line" points="${series[id].map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ")}"/>
       ${N <= 31 ? series[id].slice(1, -1).map((v, i) => `<circle cx="${x(i + 1).toFixed(1)}" cy="${y(v).toFixed(1)}" r="2.2" style="fill:${colorVar(id)}"/>`).join("") : ""}
       <circle cx="${x(N)}" cy="${y(series[id][N])}" r="3.5" style="fill:${colorVar(id)}"/>`).join("")}
-    ${labels.map((l) => `<text x="${W - R + 8}" y="${l.y + 4}" class="name" style="fill:${colorVar(l.id)}">${esc(members[l.id].name)} ${fmt(series[l.id][N])}</text>`).join("")}
+    </g>
+    ${labels.map((l) => `<text x="${W - R + 8}" y="${l.y + 4}" class="name ${grow ? "late" : ""}">${esc(members[l.id].name)} ${fmt(series[l.id][N])}</text>`).join("")}
   </svg>`;
   el.querySelectorAll("[data-trend-unit]").forEach((b) => {
     b.onclick = () => {
       trendUnit = b.dataset.trendUnit;
       try { localStorage.setItem("jankenTrendUnit", trendUnit); } catch (e) {}
-      renderTrend();
+      renderTrend(true);
     };
   });
 }

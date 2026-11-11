@@ -25,7 +25,7 @@
     --accent:#26272b; --accent-strong:#000000; --accent-soft:rgba(26,26,28,0.07); --accent-ink:#ffffff;
     --good:#2f9e63; --good-soft:rgba(47,158,99,0.13);
     --bad:#d64545; --bad-soft:rgba(214,69,69,0.13);
-    --p1:#6b7280; --p2:#8b7355; --p3:#6b7a8f; --p4:#8f8a6b; --p5:#7a6b8f; --p6:#6b8f7f;
+    --p1:#6250d6; --p2:#eda100; --p3:#e87ba4; --p4:#008300; --p5:#2a78d6; --p6:#e34948;
     --hand-gu:#2a78d6; --hand-choki:#eb6834; --hand-pa:#1baf7a;
     --mode-normal:#2a78d6; --mode-normal-soft:rgba(42,120,214,0.12);
     --mode-otoko:#d92c2c; --mode-otoko-soft:rgba(217,44,44,0.12);
@@ -40,7 +40,7 @@
       --accent:#e8e8ea; --accent-strong:#ffffff; --accent-soft:rgba(232,232,234,0.10); --accent-ink:#232326;
       --good:#45b876; --good-soft:rgba(69,184,118,0.16);
       --bad:#e2685f; --bad-soft:rgba(226,104,95,0.16);
-      --p1:#9aa3b0; --p2:#b3a179; --p3:#94a6bd; --p4:#b3ac86; --p5:#a294b8; --p6:#8fb3a3;
+      --p1:#9085e9; --p2:#c98500; --p3:#d55181; --p4:#008300; --p5:#3987e5; --p6:#e66767;
       --hand-gu:#3987e5; --hand-choki:#d95926; --hand-pa:#199e70;
       --mode-normal:#5b9cf0; --mode-normal-soft:rgba(91,156,240,0.16);
       --mode-otoko:#ef6b62; --mode-otoko-soft:rgba(239,107,98,0.16);
@@ -55,7 +55,7 @@
     --accent:#e8e8ea; --accent-strong:#ffffff; --accent-soft:rgba(232,232,234,0.10); --accent-ink:#232326;
     --good:#45b876; --good-soft:rgba(69,184,118,0.16);
     --bad:#e2685f; --bad-soft:rgba(226,104,95,0.16);
-    --p1:#9aa3b0; --p2:#b3a179; --p3:#94a6bd; --p4:#b3ac86; --p5:#a294b8; --p6:#8fb3a3;
+    --p1:#9085e9; --p2:#c98500; --p3:#d55181; --p4:#008300; --p5:#3987e5; --p6:#e66767;
       --hand-gu:#3987e5; --hand-choki:#d95926; --hand-pa:#199e70;
       --mode-normal:#5b9cf0; --mode-normal-soft:rgba(91,156,240,0.16);
       --mode-otoko:#ef6b62; --mode-otoko-soft:rgba(239,107,98,0.16);
@@ -254,7 +254,9 @@
   .trend-svg .zero{stroke:var(--line-strong);stroke-width:1.5;}
   .trend-svg .tick{font-size:11px;fill:var(--muted);font-family:"JetBrains Mono",monospace;}
   .trend-svg .line{stroke-width:2.5;stroke-linejoin:round;stroke-linecap:round;}
-  .trend-svg .name{font-size:11.5px;font-weight:700;}
+  .trend-svg .name{font-size:11.5px;font-weight:700;fill:var(--ink);}
+  .trend-svg .name.late{animation:trendLate .35s ease-out .7s both;}
+  @keyframes trendLate{from{opacity:0;}to{opacity:1;}}
   table.treats th:first-child,table.treats td:first-child{width:58px;}
   table.treats td.cell{font-size:11.5px;line-height:1.25;padding:6px 1px;}
   table.treats .times{display:block;font-size:9.5px;font-weight:500;color:var(--ink-soft);}
@@ -395,6 +397,6 @@
   <footer>Firebase上で動作する共有ジャンケン帳 ・ データはこの友達グループだけで共有されます</footer>
 </div>
 
-<script type="module" src="./app.js?v=35"></script>
+<script type="module" src="./app.js?v=36"></script>
 </body>
 </html>
