@@ -249,6 +249,10 @@
   table.treats .times{display:block;font-size:9.5px;font-weight:500;color:var(--ink-soft);}
   table.treats td.total{font-weight:700;color:var(--ink-soft);}
   table.treats tr.foot th,table.treats tr.foot td{border-top:1px solid var(--line-strong);}
+  .matchup-chips{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:6px;}
+  .matchup{display:flex;flex-direction:column;gap:5px;padding:14px 0 2px;border-top:1px solid var(--line);margin-top:12px;}
+  .matchup-label{font-size:11px;color:var(--muted);font-weight:700;margin-top:4px;}
+  .matchup-legend{display:flex;justify-content:space-between;gap:8px;font-size:11px;color:var(--ink-soft);}
   .match-cap{font-size:11.5px;color:var(--muted);padding:0 6px 6px;}
   .match-cap b{color:var(--ink);font-size:12.5px;}
   table.heat td.cell .of{font-size:10px;font-weight:500;color:var(--ink-soft);}
@@ -363,8 +367,8 @@
   </section>
 
   <section id="sec-matchups">
-    <div class="sec-head"><h2>相性表</h2><span class="sec-note">誰と一緒だと負けやすいか</span></div>
-    <div class="card heat-card" id="matchups"></div>
+    <div class="sec-head"><h2>相性表</h2><span class="sec-note">1対1で見た勝ち負け</span></div>
+    <div class="card pad" id="matchups"></div>
   </section>
 
   <section id="sec-titles">
@@ -380,6 +384,6 @@
   <footer>Firebase上で動作する共有ジャンケン帳 ・ データはこの友達グループだけで共有されます</footer>
 </div>
 
-<script type="module" src="./app.js?v=30"></script>
+<script type="module" src="./app.js?v=31"></script>
 </body>
 </html>

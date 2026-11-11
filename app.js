@@ -1358,6 +1358,7 @@ function renderTreats() {
 }
 
 // ---------- 相性表 ----------
+let matchupFocus = null;   // whose match-ups are being shown
 function renderMatchups() {
   const el = document.getElementById("matchups");
   const recs = visibleRecords().filter((r) => r.loserId);
@@ -1380,24 +1381,36 @@ function renderMatchups() {
       }
     }
   }
-  const head = `<thead><tr><th class="rowhead"></th>${ids.map((id) => `<th>${esc(members[id].name)}</th>`).join("")}</tr></thead>`;
-  const table = (fn) => `<table class="heat">${head}<tbody>${ids.map((a) =>
-    `<tr><th class="rowhead"><span class="dot" style="background:${colorVar(a)}"></span>${esc(members[a].name)}</th>${ids.map((b) =>
-      a === b ? '<td class="cell zero">＼</td>' : fn(m[a][b])).join("")}</tr>`).join("")}</tbody></table>`;
-  const lostTable = table((c) => {
-    if (!c.games) return '<td class="cell zero">–</td>';
-    const a = c.lost ? 0.12 + (c.lost / c.games) * 0.66 : 0;
-    return `<td class="cell" style="${a ? `background:rgba(194,59,52,${a});` : ""}color:var(--ink)">${c.lost}<span class="of">/${c.games}</span></td>`;
+  // one person at a time: pick who to look at, then one block per opponent
+  const me = ids.includes(matchupFocus) ? matchupFocus : ids.includes(myId) ? myId : ids[0];
+  const nm = (id) => esc(members[id].name);
+  const chips = ids.map((id) => `<button class="btn ghost small ${id === me ? "on" : ""}" data-matchup="${id}">${nm(id)}</button>`).join("");
+  const bar = (left, mid, right, leftColor, rightColor) => {
+    const total = left + mid + right || 1;
+    const seg = (v, bg, ink) => (v ? `<div class="habit-seg" style="width:${(v / total) * 100}%;background:${bg};color:${ink}">${v}</div>` : "");
+    return `<div class="habit-bar">${seg(left, leftColor, "#fff")}${seg(mid, "var(--surface-2)", "var(--muted)")}${seg(right, rightColor, "#fff")}</div>`;
+  };
+  const blocks = ids.filter((id) => id !== me).map((op) => {
+    const c = m[me][op], o = m[op][me];
+    if (!c.games) return "";
+    const others = c.games - c.lost - o.lost;
+    const verdict = c.lost === o.lost ? "五分" : c.lost < o.lost ? `${nm(me)}さんが有利` : `${nm(op)}さんが有利`;
+    return `<div class="matchup">
+      <div class="habit-row-top"><span class="name"><span class="dot" style="background:${colorVar(op)}"></span>${nm(op)}さんと一緒の対戦 ${c.games}回</span><span class="total">${verdict}</span></div>
+      <div class="matchup-label">どちらが負けたか</div>
+      ${bar(c.lost, others, o.lost, colorVar(me), colorVar(op))}
+      <div class="matchup-legend"><span>${nm(me)}の負け ${c.lost}</span>${others ? `<span>ほかの人の負け ${others}</span>` : ""}<span>${nm(op)}の負け ${o.lost}</span></div>
+      <div class="matchup-label">2人の手を比べると（全投球）</div>
+      ${bar(c.win, c.tie, c.lose, colorVar(me), colorVar(op))}
+      <div class="matchup-legend"><span>${nm(me)}の勝ち ${c.win}</span><span>あいこ ${c.tie}</span><span>${nm(op)}の勝ち ${c.lose}</span></div>
+    </div>`;
+  }).join("");
+  el.innerHTML = `<div class="sec-note" style="white-space:normal;margin-bottom:8px">見たい人を選ぶと、その人と相手1人ずつの成績が出ます</div>
+    <div class="matchup-chips">${chips}</div>
+    ${blocks || '<div class="empty">一緒に対戦した記録がありません</div>'}`;
+  el.querySelectorAll("[data-matchup]").forEach((b) => {
+    b.onclick = () => { matchupFocus = b.dataset.matchup; renderMatchups(); };
   });
-  const handTable = table((c) => {
-    const n = c.win + c.lose;
-    if (!n && !c.tie) return '<td class="cell zero">–</td>';
-    const diff = n ? (c.win - c.lose) / n : 0;
-    const bg = diff > 0 ? `rgba(47,158,99,${0.1 + diff * 0.5})` : diff < 0 ? `rgba(194,59,52,${0.1 - diff * 0.5})` : "";
-    return `<td class="cell" style="${bg ? `background:${bg};` : ""}color:var(--ink)">${c.win}<span class="of">-${c.lose}-${c.tie}</span></td>`;
-  });
-  el.innerHTML = `<div class="match-cap"><b>一緒に対戦した時の負け数</b>（横の人が負けた回数 / 同席した対戦数）</div>${lostTable}
-    <div class="match-cap" style="margin-top:16px"><b>じゃんけんの手の直接対決</b>（横の人から見た 勝-負-あいこ。全投球）</div>${handTable}`;
 }
 
 // ---------- 記録・称号 ----------
