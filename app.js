@@ -64,7 +64,14 @@ const sessionRef = doc(db, "session", "current");
 const seedRef = doc(db, "meta", "seed");
 const seasonMetaRef = doc(db, "meta", "season");
 
-const PLAYER_COLORS = ["--p1", "--p2", "--p3", "--p4", "--p5", "--p6"];
+// Icon colours a member can pick (the hex values live in index.html as --c-<key>, one set per
+// theme). The first six are also the defaults, handed out in joining order.
+const COLOR_CHOICES = [
+  ["violet", "紫"], ["yellow", "黄"], ["magenta", "ピンク"], ["green", "緑"], ["blue", "青"], ["red", "赤"],
+  ["orange", "オレンジ"], ["aqua", "エメラルド"], ["cyan", "水色"], ["brown", "茶"], ["gray", "グレー"],
+];
+const DEFAULT_COLORS = 6;
+let colorPickerOpen = false;
 const HAND_ORDER = ["グー", "チョキ", "パー"];
 const BEATS = { "グー": "チョキ", "チョキ": "パー", "パー": "グー" };
 
@@ -209,9 +216,17 @@ async function startNewSeason() {
   selectedSeason = next;
 }
 
-function colorVar(id) {
+function colorKey(id) {
+  // the colour the member picked (saved on their member record, so everyone sees it), or
+  // else the default for their place in the joining order
+  const picked = members[id]?.color;
+  if (COLOR_CHOICES.some(([key]) => key === picked)) return picked;
   const i = memberOrder.indexOf(id);
-  return `var(${PLAYER_COLORS[i >= 0 ? i % PLAYER_COLORS.length : 0]})`;
+  return COLOR_CHOICES[i >= 0 ? i % DEFAULT_COLORS : 0][0];
+}
+
+function colorVar(id) {
+  return `var(--c-${colorKey(id)})`;
 }
 
 // ---------- identity gate ----------
@@ -341,8 +356,20 @@ function renderMembers() {
       <span class="dot" style="background:${colorVar(id)}"></span>
       <span class="name">${esc(m.name)}</span>
       <span class="code">${id}</span>
+      ${id === myId ? `<button class="btn ghost small" id="btnColor">色を変える</button>` : ""}
       ${myId ? `<button class="btn ghost small" data-toggle="${id}">${m.active ? "脱退" : "復帰"}</button>` : ""}
     </div>`;
+    if (id === myId && colorPickerOpen) {
+      // colours other members are showing are greyed out, so no two icons look the same
+      const mine = colorKey(id);
+      const taken = {};
+      memberOrder.forEach((other) => { if (other !== id && members[other].active) taken[colorKey(other)] = members[other].name; });
+      html += `<div class="color-picker">
+        <div class="sec-note" style="white-space:normal">自分のアイコンの色を選んでください。全員の画面に反映されます（薄い色はほかの人が使用中）</div>
+        <div class="swatches">${COLOR_CHOICES.map(([key, label]) => `<button class="swatch ${key === mine ? "on" : ""}" data-color="${key}"
+          style="background:var(--c-${key})" ${taken[key] ? "disabled" : ""} aria-label="${label}${taken[key] ? `（${esc(taken[key])}さんが使用中）` : ""}" title="${label}"></button>`).join("")}</div>
+      </div>`;
+    }
   });
   if (memberOrder.length === 0) html = '<div class="empty">まだメンバーがいません</div>';
   html += `<div class="add-member">
@@ -351,6 +378,14 @@ function renderMembers() {
     <button class="btn" id="btnAddMember">追加</button>
   </div>`;
   el.innerHTML = html;
+  const colorBtn = document.getElementById("btnColor");
+  if (colorBtn) colorBtn.onclick = () => { colorPickerOpen = !colorPickerOpen; renderMembers(); };
+  el.querySelectorAll("[data-color]").forEach((b) => {
+    b.onclick = async () => {
+      colorPickerOpen = false;
+      await updateDoc(doc(membersCol, myId), { color: b.dataset.color });
+    };
+  });
   el.querySelectorAll("[data-toggle]").forEach((b) => {
     b.onclick = async () => {
       const id = b.dataset.toggle;
@@ -1423,7 +1458,7 @@ function renderTrend(animate) {
       <text x="${L - 6}" y="${y(v) + 4}" text-anchor="end" class="tick">${fmt(v)}</text>`).join("")}
     ${marks.map((m) => `<text x="${x(m.i)}" y="${H - 6}" text-anchor="${m.i === N ? "end" : "middle"}" class="tick">${m.label}</text>`).join("")}
     <defs><clipPath id="trendClip"><rect x="0" y="0" width="${grow ? L : W}" height="${H}">${grow
-      ? `<animate attributeName="width" from="${L}" to="${W - R + 6}" dur="0.9s" fill="freeze" calcMode="spline" keyTimes="0;1" keySplines="0.3 0 0.2 1"/>` : ""}</rect></clipPath></defs>
+      ? `<animate attributeName="width" from="${L}" to="${W - R + 6}" dur="1.3s" fill="freeze" calcMode="spline" keyTimes="0;1" keySplines="0.3 0 0.2 1"/>` : ""}</rect></clipPath></defs>
     <g clip-path="url(#trendClip)">
     ${ids.map((id) => `<polyline fill="none" style="stroke:${colorVar(id)}" class="line" points="${series[id].map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ")}"/>
       ${N <= 31 ? series[id].slice(1, -1).map((v, i) => `<circle cx="${x(i + 1).toFixed(1)}" cy="${y(v).toFixed(1)}" r="2.2" style="fill:${colorVar(id)}"/>`).join("") : ""}

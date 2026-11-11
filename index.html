@@ -25,7 +25,8 @@
     --accent:#26272b; --accent-strong:#000000; --accent-soft:rgba(26,26,28,0.07); --accent-ink:#ffffff;
     --good:#2f9e63; --good-soft:rgba(47,158,99,0.13);
     --bad:#d64545; --bad-soft:rgba(214,69,69,0.13);
-    --p1:#6250d6; --p2:#eda100; --p3:#e87ba4; --p4:#008300; --p5:#2a78d6; --p6:#e34948;
+    --c-violet:#6250d6; --c-yellow:#eda100; --c-magenta:#e87ba4; --c-green:#008300; --c-blue:#2a78d6; --c-red:#e34948;
+    --c-orange:#eb6834; --c-aqua:#1baf7a; --c-cyan:#0f9fb5; --c-brown:#8a5a2b; --c-gray:#7a7d85;
     --hand-gu:#2a78d6; --hand-choki:#eb6834; --hand-pa:#1baf7a;
     --mode-normal:#2a78d6; --mode-normal-soft:rgba(42,120,214,0.12);
     --mode-otoko:#d92c2c; --mode-otoko-soft:rgba(217,44,44,0.12);
@@ -40,7 +41,8 @@
       --accent:#e8e8ea; --accent-strong:#ffffff; --accent-soft:rgba(232,232,234,0.10); --accent-ink:#232326;
       --good:#45b876; --good-soft:rgba(69,184,118,0.16);
       --bad:#e2685f; --bad-soft:rgba(226,104,95,0.16);
-      --p1:#9085e9; --p2:#c98500; --p3:#d55181; --p4:#008300; --p5:#3987e5; --p6:#e66767;
+      --c-violet:#9085e9; --c-yellow:#c98500; --c-magenta:#d55181; --c-green:#008300; --c-blue:#3987e5; --c-red:#e66767;
+    --c-orange:#d95926; --c-aqua:#199e70; --c-cyan:#22b3c8; --c-brown:#b07a45; --c-gray:#9a9da5;
       --hand-gu:#3987e5; --hand-choki:#d95926; --hand-pa:#199e70;
       --mode-normal:#5b9cf0; --mode-normal-soft:rgba(91,156,240,0.16);
       --mode-otoko:#ef6b62; --mode-otoko-soft:rgba(239,107,98,0.16);
@@ -55,7 +57,8 @@
     --accent:#e8e8ea; --accent-strong:#ffffff; --accent-soft:rgba(232,232,234,0.10); --accent-ink:#232326;
     --good:#45b876; --good-soft:rgba(69,184,118,0.16);
     --bad:#e2685f; --bad-soft:rgba(226,104,95,0.16);
-    --p1:#9085e9; --p2:#c98500; --p3:#d55181; --p4:#008300; --p5:#3987e5; --p6:#e66767;
+    --c-violet:#9085e9; --c-yellow:#c98500; --c-magenta:#d55181; --c-green:#008300; --c-blue:#3987e5; --c-red:#e66767;
+    --c-orange:#d95926; --c-aqua:#199e70; --c-cyan:#22b3c8; --c-brown:#b07a45; --c-gray:#9a9da5;
       --hand-gu:#3987e5; --hand-choki:#d95926; --hand-pa:#199e70;
       --mode-normal:#5b9cf0; --mode-normal-soft:rgba(91,156,240,0.16);
       --mode-otoko:#ef6b62; --mode-otoko-soft:rgba(239,107,98,0.16);
@@ -124,6 +127,11 @@
   .member-row .name{font-weight:700;font-size:14.5px;flex:1;}
   .member-row .code{font-family:"JetBrains Mono",monospace;font-size:11px;color:var(--muted);}
   .member-row.inactive{opacity:.45;}
+  .color-picker{padding:10px 14px 14px;border-top:1px dashed var(--line-strong);display:flex;flex-direction:column;gap:10px;}
+  .swatches{display:flex;flex-wrap:wrap;gap:10px;}
+  .swatch{width:34px;height:34px;border-radius:50%;border:3px solid var(--surface);box-shadow:0 0 0 1px var(--line-strong);cursor:pointer;padding:0;}
+  .swatch.on{box-shadow:0 0 0 3px var(--ink);}
+  .swatch:disabled{opacity:.22;cursor:default;}
   .add-member{padding:12px 14px;border-top:1px dashed var(--line-strong);display:flex;gap:8px;}
   .add-member input{flex:1;}
 
@@ -255,7 +263,7 @@
   .trend-svg .tick{font-size:11px;fill:var(--muted);font-family:"JetBrains Mono",monospace;}
   .trend-svg .line{stroke-width:2.5;stroke-linejoin:round;stroke-linecap:round;}
   .trend-svg .name{font-size:11.5px;font-weight:700;fill:var(--ink);}
-  .trend-svg .name.late{animation:trendLate .35s ease-out .7s both;}
+  .trend-svg .name.late{animation:trendLate .4s ease-out 1.05s both;}
   @keyframes trendLate{from{opacity:0;}to{opacity:1;}}
   table.treats th:first-child,table.treats td:first-child{width:58px;}
   table.treats td.cell{font-size:11.5px;line-height:1.25;padding:6px 1px;}
@@ -397,6 +405,6 @@
   <footer>Firebase上で動作する共有ジャンケン帳 ・ データはこの友達グループだけで共有されます</footer>
 </div>
 
-<script type="module" src="./app.js?v=36"></script>
+<script type="module" src="./app.js?v=38"></script>
 </body>
 </html>
