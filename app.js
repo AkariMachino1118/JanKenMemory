@@ -3,7 +3,7 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/10.14.1/fireba
 import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
 import {
   getFirestore, doc, setDoc, updateDoc, deleteDoc, onSnapshot,
-  collection, runTransaction, serverTimestamp, arrayUnion, increment,
+  collection, runTransaction, serverTimestamp, arrayUnion, increment, waitForPendingWrites,
 } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
 
 // ---------- theme toggle ----------
@@ -24,6 +24,35 @@ document.getElementById("themeToggle").onclick = () => {
   applyTheme(currentTheme() === "dark" ? "light" : "dark");
 };
 
+// ---------- collapsible sections ----------
+// Tapping a section's heading folds it away; which ones are folded is remembered per device.
+(() => {
+  let folded = [];
+  try { folded = JSON.parse(localStorage.getItem("jankenFolded") || "[]"); } catch (e) {}
+  document.querySelectorAll(".wrap > section").forEach((sec) => {
+    const head = sec.querySelector(".sec-head");
+    if (!head) return;
+    const set = (on) => {
+      sec.classList.toggle("collapsed", on);
+      head.setAttribute("aria-expanded", String(!on));
+    };
+    head.setAttribute("role", "button");
+    head.tabIndex = 0;
+    set(folded.includes(sec.id));
+    const toggle = () => {
+      const on = !sec.classList.contains("collapsed");
+      set(on);
+      folded = folded.filter((id) => id !== sec.id);
+      if (on) folded.push(sec.id);
+      try { localStorage.setItem("jankenFolded", JSON.stringify(folded)); } catch (e) {}
+    };
+    head.addEventListener("click", toggle);
+    head.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(); }
+    });
+  });
+})();
+
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
@@ -42,6 +71,8 @@ const BEATS = { "グー": "チョキ", "チョキ": "パー", "パー": "グー"
 let myId = localStorage.getItem("jankenMemberId") || null;
 let viewOnly = false;
 let members = {};     // id -> data
+let membersLoaded = false;  // false until the member list has arrived from the server
+let pendingLogin = false;   // the login button was pressed before the member list arrived
 let memberOrder = []; // ids sorted by createdAt
 let records = [];     // array of {id, ...data}
 let session = null;   // current session doc data, or null
@@ -96,15 +127,17 @@ function boot() {
     });
     withDates.sort((a, b) => a[1] - b[1]);
     memberOrder = withDates.map((x) => x[0]);
+    membersLoaded = true;
     renderGate();
-    renderAll();
+    scheduleRenderAll();
+    if (pendingLogin) { pendingLogin = false; document.getElementById("btnLogin").click(); }
   });
   onSnapshot(recordsCol, (snap) => {
     records = [];
     snap.forEach((d) => records.push({ id: d.id, ...d.data() }));
     records.sort((a, b) => (a.dateISO < b.dateISO ? -1 : a.dateISO > b.dateISO ? 1
       : (a.createdAt?.toMillis?.() ?? 0) - (b.createdAt?.toMillis?.() ?? 0)));
-    renderAll();
+    scheduleRenderAll();
   });
   onSnapshot(sessionRef, (snap) => {
     session = snap.exists() ? snap.data() : null;
@@ -120,8 +153,18 @@ function boot() {
     currentSeason = snap.exists() ? (snap.data().current || 1) : 1;
     if (!seasonMetaLoaded) { selectedSeason = currentSeason; seasonMetaLoaded = true; }
     renderSeason();
-    renderAll();
+    scheduleRenderAll();
   });
+}
+
+// Several listeners often fire back to back (opening the page, or a round finishing, which
+// touches the record and every participant). Redraw once for the whole burst instead of
+// rebuilding the page each time.
+let renderQueued = false;
+function scheduleRenderAll() {
+  if (renderQueued) return;
+  renderQueued = true;
+  setTimeout(() => { renderQueued = false; renderAll(); }, 0);
 }
 
 function seasonLabel(id) {
@@ -185,6 +228,12 @@ document.getElementById("btnLogin").onclick = () => {
   const code = document.getElementById("loginCode").value.trim().toLowerCase();
   const err = document.getElementById("loginErr");
   if (!code) { err.textContent = "IDを入力してください"; return; }
+  if (!membersLoaded) {
+    // the member list is still on its way: finish the login by itself once it arrives
+    pendingLogin = true;
+    err.textContent = "データを読み込み中です。このままお待ちください…";
+    return;
+  }
   if (!members[code]) { err.textContent = "そのIDは見つかりません"; return; }
   err.textContent = "";
   myId = code;
@@ -248,7 +297,8 @@ function renderGate() {
   const gate = document.getElementById("gate");
   if (myId && members[myId]) {
     gate.style.display = "none";
-  } else if (!viewOnly) {
+  } else if (!viewOnly && (membersLoaded || !myId)) {
+    // a remembered ID keeps the gate away while the member list loads
     gate.style.display = "flex";
   }
   renderWhoami();
@@ -264,6 +314,8 @@ function renderWhoami() {
       renderGate();
       renderAll();
     };
+  } else if (myId && !membersLoaded) {
+    el.innerHTML = "<span>読み込み中…</span>";
   } else {
     el.innerHTML = `<span>閲覧のみで見ています</span><button class="switch" id="btnSwitch">ログインする</button>`;
     document.getElementById("btnSwitch").onclick = () => {
@@ -272,6 +324,8 @@ function renderWhoami() {
     };
   }
 }
+
+renderWhoami();
 
 function esc(s) {
   return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -732,6 +786,12 @@ function adviseHands(opps, preds, mode) {
   return out;
 }
 
+function isTossUp(odds) {
+  // true when the three hands are within 3 points of each other: no real recommendation
+  const score = HAND_ORDER.map((h) => odds[h].safe - odds[h].lose).sort((a, b) => b - a);
+  return score[0] - score[2] < 0.03;
+}
+
 function bestOf(odds) {
   return HAND_ORDER.slice().sort((a, b) => (odds[b].safe - odds[b].lose) - (odds[a].safe - odds[a].lose))[0];
 }
@@ -750,8 +810,9 @@ function renderSecretAdvice(ctx) {
   const odds = adviseHands(opps, preds, ctx.mode);
   const best = bestOf(odds);
   const pitchNo = ctx.pitches.length + 1;
+  const tossUp = isTossUp(odds);
 
-  const options = HAND_ORDER.map((h) => `<div class="secret-opt ${h === best ? "best" : ""}">
+  const options = HAND_ORDER.map((h) => `<div class="secret-opt ${h === best && !tossUp ? "best" : ""}">
       <b>${h}</b><span>抜け ${pct(odds[h].safe)}</span><span class="neg">負け確 ${pct(odds[h].lose)}</span>
     </div>`).join("");
 
@@ -766,7 +827,7 @@ function renderSecretAdvice(ctx) {
       <div class="habit-row-top"><span class="name"><span class="dot" style="background:${colorVar(id)}"></span>${nameOf(id)}：${pr.p[top] >= 0.4 ? `${top}が濃厚` : pr.p[top] >= 0.36 ? `やや${top}寄り` : "ほぼ五分（読めず）"}</span>
       <span class="total">${acc}</span></div>
       <div class="habit-bar">${segs}</div>
-      <div class="secret-why">${pr.reasons.length ? pr.reasons.map((t) => `・${esc(t)}`).join("<br>") : "・この場面でははっきりした癖なし"}</div>
+      <div class="secret-why">${pr.p[top] >= 0.36 && pr.reasons.length ? pr.reasons.map((t) => `・${esc(t)}`).join("<br>") : "・この場面でははっきりした癖なし"}</div>
     </div>`;
   }).join("");
 
@@ -788,13 +849,14 @@ function renderSecretAdvice(ctx) {
     o2.forEach((id) => { pr2[id] = predictHand(id, c); });
     const od2 = adviseHands(o2, pr2, c.mode);
     const b2 = bestOf(od2);
+    if (isTossUp(od2)) break;   // nothing worth saying about a pitch that is a toss-up too
     steps.push(`<div class="secret-step"><span class="sec-note">${nx.draw ? "あいこ" : "残り"}想定（${scen}）→</span> ${c.pitches.length + 1}投目は <b>${b2}</b> <span class="sec-note">抜け ${pct(od2[b2].safe)}</span></div>`);
     cur = { odds: od2, best: b2 };
   }
 
   return `<div class="secret">
     <div class="secret-head">🔮 ${esc(members[myId]?.name ?? "")}さんへの裏アドバイス<span>${otoko ? "男気モード：じゃんけんに負ける手を狙います" : "通常モード：場面ごとの癖から予測"}</span></div>
-    <div class="secret-best">${pitchNo}投目、あなたのおすすめは <b>${best}</b></div>
+    <div class="secret-best">${tossUp ? `${pitchNo}投目は<b style="font-size:16px">どれを出してもほぼ同じ</b>です` : `${pitchNo}投目、あなたのおすすめは <b>${best}</b>`}</div>
     <div class="secret-opts">${options}</div>
     ${steps.length ? `<div class="secret-steps">${steps.join("")}</div>` : ""}
     ${oppRows}
@@ -819,7 +881,7 @@ function pitchResultFor(mine, oppHands, mode) {
 
 function secretReview(model) {
   const tally = () => ({ n: 0, safe: 0, lose: 0 });
-  const adv = { followed: tally(), other: tally(), best: tally(), random: tally() };
+  const adv = { followed: tally(), other: tally(), best: tally(), random: tally(), mine: tally(), mineRandom: tally(), tossUps: 0 };
   const opp = {};      // id -> {n, hit, recent: [credit...]}
   const me = { n: 0, hit: 0 };
   const habits = {};   // key -> {text(top), c: [..], shift}
@@ -849,9 +911,14 @@ function secretReview(model) {
     if (!opps.length || opps.length > 7) continue;
     const preds = {};
     opps.forEach((id) => { preds[id] = { p: Object.fromEntries(HAND_ORDER.map((h, j) => [h, e.preds[id][j]])) }; });
-    const best = bestOf(adviseHands(opps, preds, e.mode));
+    const odds = adviseHands(opps, preds, e.mode);
+    const best = bestOf(odds);
     const oppHands = e.throwers.filter(([id]) => id !== myId).map(([, h]) => h);
     const add = (t, res, w = 1) => { t.n += w; if (res === "safe") t.safe += w; if (res === "lose") t.lose += w; };
+    HAND_ORDER.forEach((h) => add(adv.mineRandom, pitchResultFor(h, oppHands, e.mode), 1 / 3));
+    add(adv.mine, pitchResultFor(mine, oppHands, e.mode));
+    // a toss-up is shown as "any hand will do", so it doesn't count as a recommendation
+    if (isTossUp(odds)) { adv.tossUps++; continue; }
     add(mine === best ? adv.followed : adv.other, pitchResultFor(mine, oppHands, e.mode));
     add(adv.best, pitchResultFor(best, oppHands, e.mode));
     HAND_ORDER.forEach((h) => add(adv.random, pitchResultFor(h, oppHands, e.mode), 1 / 3));
@@ -882,7 +949,9 @@ function renderSecretStats() {
   };
 
   const advRow = (label, t, ref) => `<tr class="${ref ? "ref" : ""}"><th>${label}</th><td>${Math.round(t.n)}</td><td>${rate(t, "safe")}</td><td>${rate(t, "lose")}</td></tr>`;
-  const advHtml = adv.best.n ? `<table class="mini">
+  const advHtml = !adv.mine.n ? '<div class="empty">あなたの投球データがまだありません</div>'
+    : !adv.best.n ? `<div class="secret-why">これまでの${adv.tossUps}投はすべて「どれを出してもほぼ同じ」で、はっきりしたおすすめが出た場面はまだありません。</div>`
+    : `<table class="mini">
       <thead><tr><th></th><th>回数</th><th>抜け</th><th>負け確</th></tr></thead>
       <tbody>
         ${advRow("おすすめと同じ手を出した時", adv.followed)}
@@ -890,8 +959,7 @@ function renderSecretStats() {
         ${advRow("（参考）全部おすすめ通りなら", adv.best, true)}
         ${advRow("（参考）でたらめに出したら", adv.random, true)}
       </tbody></table>
-      <div class="secret-why">おすすめは、その時点までのデータだけで出し直したものです。「抜け」はその1投で抜けられた割合、「負け確」はその1投で負けが決まった割合。参考の2行を比べて差が小さければ、おすすめはまだ効いていません。</div>`
-    : '<div class="empty">あなたの投球データがまだありません</div>';
+      <div class="secret-why">おすすめは、その時点までのデータだけで出し直したものです。「抜け」はその1投で抜けられた割合、「負け確」はその1投で負けが決まった割合。参考の2行を比べて差が小さければ、おすすめはまだ効いていません。${adv.tossUps ? `「どれを出してもほぼ同じ」だった${adv.tossUps}投は数えていません。` : ""}</div>`;
 
   const oppIds = memberOrder.filter((id) => opp[id]);
   const oppHtml = oppIds.length ? oppIds.map((id) => {
@@ -912,13 +980,13 @@ function renderSecretStats() {
   let meHtml = '<div class="empty">あなたの投球データがまだありません</div>';
   if (me.n) {
     const [label, cls] = verdict(me.hit, me.n);
-    const mine = { n: adv.followed.n + adv.other.n, lose: adv.followed.lose + adv.other.lose, safe: adv.followed.safe + adv.other.safe };
+    const mine = adv.mine;
     meHtml = `<div class="secret-opp">
         <div class="habit-row-top"><span class="name">あなたの手が読まれた割合</span><span class="total">${pct(me.hit / me.n)}（${me.n}投）</span></div>
         <div class="hitbar"><div class="fill ${cls === "good" ? "bad" : cls === "bad" ? "good" : ""}" style="width:${Math.min(100, (me.hit / me.n) * 100)}%"></div><div class="mark"></div></div>
         <div class="secret-why">${label === "読めている" ? "読まれています。下の癖を意識して散らしましょう" : label === "外れ気味" ? "うまく裏をかけています" : label === "データ少なめ" ? label : "当て推量並み＝読まれていません"}</div>
       </div>
-      ${mine.n ? `<div class="secret-why">あなたが実際に出した手：抜け ${rate(mine, "safe")}・負け確 ${rate(mine, "lose")}（でたらめに出した場合：抜け ${rate(adv.random, "safe")}・負け確 ${rate(adv.random, "lose")}）</div>` : ""}
+      ${mine.n ? `<div class="secret-why">あなたが実際に出した手：抜け ${rate(mine, "safe")}・負け確 ${rate(mine, "lose")}（でたらめに出した場合：抜け ${rate(adv.mineRandom, "safe")}・負け確 ${rate(adv.mineRandom, "lose")}）</div>` : ""}
       <div class="secret-why">${patterns.length
         ? "<b>読まれやすい癖</b><br>" + patterns.map((x) => `・${esc(x.text)}（${x.c}/${x.n}回・${pct(x.c / x.n)}）`).join("<br>")
         : "・はっきりした癖は見つかりません（読まれにくい出し方です）"}</div>`;
@@ -935,19 +1003,25 @@ function renderSecretStats() {
     </div>`;
 }
 
-let resolving = false;
+let resolving = false, resolveTries = 0;
 async function maybeResolve() {
   if (!session || session.status !== "collecting" || resolving) return;
   const gotAll = session.pool.every((id) => session.hands && session.hands[id]);
   if (!gotAll || session.pool.length === 0) return;
   resolving = true;
+  let settled = true;
   try {
+    // The transaction reads the server's copy, and the hand just tapped on this device may
+    // not have arrived there yet. Without waiting, the server would look one hand short, the
+    // round would not be judged, and nothing would prompt another try.
+    await waitForPendingWrites(db);
     await runTransaction(db, async (tx) => {
+      settled = true;
       const snap = await tx.get(sessionRef);
       if (!snap.exists()) return;
       const s = snap.data();
       if (s.status !== "collecting") return;
-      if (!s.pool.every((id) => s.hands && s.hands[id])) return;
+      if (!s.pool.every((id) => s.hands && s.hands[id])) { settled = false; return; }
 
       const newPitch = { hands: { ...s.hands }, result: "" };
       const withdrawnNow = s.pool.filter((id) => s.hands[id] === "不参加");
@@ -1026,10 +1100,15 @@ async function maybeResolve() {
       finalize(continuing[0]);
     });
   } catch (e) {
+    settled = false;
     console.error(e);
   } finally {
     resolving = false;
   }
+  if (settled) { resolveTries = 0; return; }
+  // not judged (server still a hand short, or the attempt failed): try again shortly, as long
+  // as this device still sees every hand in
+  if (resolveTries < 6) setTimeout(maybeResolve, Math.min(4000, 400 * 2 ** resolveTries++));
 }
 
 function computeStreakText(loserId) {
