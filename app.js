@@ -1036,7 +1036,7 @@ function renderSecretStats() {
       </tbody></table>
       <div class="secret-why">おすすめは、その時点までのデータだけで出し直したものです。「抜け」はその1投で抜けられた割合、「負け確」はその1投で負けが決まった割合。参考の2行を比べて差が小さければ、おすすめはまだ効いていません。${adv.tossUps ? `「どれを出してもほぼ同じ」だった${adv.tossUps}投は数えていません。` : ""}</div>`;
 
-  const oppIds = memberOrder.filter((id) => opp[id]);
+  const oppIds = memberOrder.filter((id) => opp[id] && !isGuest(id));
   const oppHtml = oppIds.length ? oppIds.map((id) => {
     const o = opp[id];
     const [label, cls] = verdict(o.hit, o.n);
@@ -1220,6 +1220,8 @@ function computeSeasonStats(recs) {
 }
 
 // ---------- stats rendering (standings / habits / heatmap / monthly / records) ----------
+// Guests are kept out of every table and chart below: their results live only on the records
+// of the rounds they played in. A round with a guest still counts for the named members in it.
 function renderAll() {
   renderMembers();
   renderRound();
@@ -1241,7 +1243,7 @@ function renderStandings() {
   const el = document.getElementById("standings");
   const recs = visibleRecords();
   const stats = computeSeasonStats(recs);
-  const players = memberOrder.filter((id) => members[id] && stats[id]);
+  const players = memberOrder.filter((id) => !isGuest(id) && members[id] && stats[id]);
   if (!players.length) { el.innerHTML = `<div class="empty">${esc(seasonLabel(selectedSeason))}の対戦記録がありません</div>`; return; }
   // 順位表に載るのは参加数の中央値の6割（小数点以下切り捨て）以上に参加した人のみ
   // 中央値は2倍した整数で扱い、割り算の誤差を避ける
@@ -1307,7 +1309,7 @@ function renderPayments() {
       totals[id] = (totals[id] || 0) + v;
     }
   }
-  const ids = memberOrder.filter((id) => members[id] && totals[id]);
+  const ids = memberOrder.filter((id) => !isGuest(id) && members[id] && totals[id]);
   if (!ids.length) { el.innerHTML = '<div class="empty">金額の記録がまだありません（対戦記録の編集から入力できます）</div>'; return; }
   const ranked = ids.slice().sort((a, b) => totals[b] - totals[a]);
   el.innerHTML = ranked.map((id) => {
@@ -1352,7 +1354,7 @@ function loseThrows(recs) {
 
 function renderHandBars(containerId, throwsMap, emptyMsg, totalSuffix) {
   const el = document.getElementById(containerId);
-  const ids = memberOrder.filter((id) => members[id] && throwsMap[id]);
+  const ids = memberOrder.filter((id) => !isGuest(id) && members[id] && throwsMap[id]);
   if (!ids.length) { el.innerHTML = `<div class="empty">${emptyMsg}</div>`; return; }
   const handColor = { "グー": "var(--hand-gu)", "チョキ": "var(--hand-choki)", "パー": "var(--hand-pa)" };
   let html = `<div class="habit-legend">
@@ -1393,7 +1395,7 @@ function renderHeatmap() {
     counts[r.loserId] = counts[r.loserId] || {};
     counts[r.loserId][wd] = (counts[r.loserId][wd] || 0) + 1;
   }
-  const ids = memberOrder.filter((id) => members[id] && counts[id]);
+  const ids = memberOrder.filter((id) => !isGuest(id) && members[id] && counts[id]);
   if (!ids.length) { el.innerHTML = '<tbody><tr><td class="empty">データなし</td></tr></tbody>'; return; }
   let max = 0;
   ids.forEach((id) => days.forEach((d) => { max = Math.max(max, counts[id][d] || 0); }));
@@ -1420,8 +1422,7 @@ function renderMonthly() {
     byMonth[key][r.loserId] = (byMonth[key][r.loserId] || 0) + 1;
   }
   const months = Object.keys(byMonth).sort();
-  // named members always; a guest only if they actually lost a round in this view
-  const ids = memberOrder.filter((id) => members[id] && (!isGuest(id) || months.some((mo) => byMonth[mo][id])));
+  const ids = memberOrder.filter((id) => members[id] && !isGuest(id));
   if (!months.length || !ids.length) { el.innerHTML = '<div class="empty">データなし</div>'; return; }
   const legend = `<div class="trend-legend">${ids.map((id) => `<span><i style="background:${colorVar(id)}"></i>${esc(members[id].name)}</span>`).join("")}</div>`;
   let max = 1;
@@ -1477,7 +1478,7 @@ function renderTrend(animate) {
     return;
   }
   const recs = visibleRecords().filter((r) => r.loserId);
-  const ids = memberOrder.filter((id) => members[id] && recs.some((r) => r.participantIds.includes(id)));
+  const ids = memberOrder.filter((id) => members[id] && !isGuest(id) && recs.some((r) => r.participantIds.includes(id)));
   if (recs.length < 2 || !ids.length) { el.innerHTML = '<div class="empty">対戦が2回以上になるとグラフが出ます</div>'; return; }
   // running points after each round; a member's line stays flat while they sit a round out
   const perRound = {};
@@ -1561,7 +1562,7 @@ function renderTreats() {
   }
   const involved = new Set();
   Object.entries(paid).forEach(([a, row]) => { involved.add(a); Object.keys(row).forEach((b) => involved.add(b)); });
-  const ids = memberOrder.filter((id) => members[id] && involved.has(id));
+  const ids = memberOrder.filter((id) => !isGuest(id) && members[id] && involved.has(id));
   if (!ids.length) { el.innerHTML = ""; return; }
   const max = Math.max(...ids.flatMap((a) => ids.map((b) => paid[a]?.[b]?.amt || 0)));
   const sum = (cells) => cells.reduce((t, c) => t + (c?.amt || 0), 0);
@@ -1586,7 +1587,7 @@ let matchupFocus = null;   // whose match-ups are being shown
 function renderMatchups() {
   const el = document.getElementById("matchups");
   const recs = visibleRecords().filter((r) => r.loserId);
-  const ids = memberOrder.filter((id) => members[id] && recs.some((r) => r.participantIds.includes(id)));
+  const ids = memberOrder.filter((id) => members[id] && !isGuest(id) && recs.some((r) => r.participantIds.includes(id)));
   if (ids.length < 2) { el.innerHTML = '<div class="empty">データなし</div>'; return; }
   const cell = () => ({ games: 0, lost: 0, win: 0, lose: 0, tie: 0 });
   const m = {};
@@ -1655,23 +1656,24 @@ function renderTitles() {
   for (const r of recs) {
     run = r.loserId === runId ? run + 1 : 1;
     runId = r.loserId;
-    offer(loseStreak, run, name(r.loserId));
+    const named = !isGuest(r.loserId);   // guests hold no personal titles
+    if (named) offer(loseStreak, run, name(r.loserId));
     for (const id of r.participantIds) {
       safeRun[id] = id === r.loserId ? 0 : (safeRun[id] || 0) + 1;
-      offer(safeStreak, safeRun[id], name(id));
+      if (!isGuest(id)) offer(safeStreak, safeRun[id], name(id));
     }
     const k = `${r.dateISO}|${r.loserId}`;
     perDay[k] = (perDay[k] || 0) + 1;
-    offer(dayLosses, perDay[k], `${name(r.loserId)}（${day(r.dateISO)}）`);
+    if (named) offer(dayLosses, perDay[k], `${name(r.loserId)}（${day(r.dateISO)}）`);
     const ps = (r.pitches || []).filter((p) => pitchThrowers(p).length >= 2);
     if (ps.length === 1) {
       oneShots[r.loserId] = (oneShots[r.loserId] || 0) + 1;
-      offer(oneShot, oneShots[r.loserId], name(r.loserId));
+      if (named) offer(oneShot, oneShots[r.loserId], name(r.loserId));
     }
-    const label = `${day(r.dateISO)}（負け：${name(r.loserId)}）`;
+    const label = `${day(r.dateISO)}（負け：${esc(recName(r, r.loserId))}）`;
     offer(longest, ps.length, label);
     offer(draws, ps.filter((p) => new Set(pitchThrowers(p).map(([, h]) => h)).size !== 2).length, label);
-    offer(priciest, -(recordAmounts(r)[r.loserId] || 0), `${name(r.loserId)}（${day(r.dateISO)}）`);
+    if (named) offer(priciest, -(recordAmounts(r)[r.loserId] || 0), `${name(r.loserId)}（${day(r.dateISO)}）`);
   }
   const rows = [
     ["🔥", "最長連敗", loseStreak, "連敗", 2],
