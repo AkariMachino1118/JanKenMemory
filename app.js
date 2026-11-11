@@ -378,7 +378,9 @@ function esc(s) {
 function renderMembers() {
   const el = document.getElementById("members");
   let html = "";
-  memberOrder.forEach((id) => {
+  // guests are listed only while they are in use (added for a round); the named members stay
+  const shown = memberOrder.filter((id) => !isGuest(id) || members[id].active);
+  shown.forEach((id) => {
     const m = members[id];
     html += `<div class="member-row ${m.active ? "" : "inactive"}">
       <span class="dot" style="background:${colorVar(id)}"></span>
@@ -399,7 +401,7 @@ function renderMembers() {
       </div>`;
     }
   });
-  if (memberOrder.length === 0) html = '<div class="empty">まだメンバーがいません</div>';
+  if (shown.length === 0) html = '<div class="empty">まだメンバーがいません</div>';
   html += `<div class="add-member">
     <input class="field" id="newMemberName" placeholder="表示名">
     <input class="field" id="newMemberId" placeholder="ID（数字）" inputmode="numeric" pattern="[0-9]*" style="max-width:110px">
@@ -1418,7 +1420,8 @@ function renderMonthly() {
     byMonth[key][r.loserId] = (byMonth[key][r.loserId] || 0) + 1;
   }
   const months = Object.keys(byMonth).sort();
-  const ids = memberOrder.filter((id) => members[id]);
+  // named members always; a guest only if they actually lost a round in this view
+  const ids = memberOrder.filter((id) => members[id] && (!isGuest(id) || months.some((mo) => byMonth[mo][id])));
   if (!months.length || !ids.length) { el.innerHTML = '<div class="empty">データなし</div>'; return; }
   const legend = `<div class="trend-legend">${ids.map((id) => `<span><i style="background:${colorVar(id)}"></i>${esc(members[id].name)}</span>`).join("")}</div>`;
   let max = 1;
