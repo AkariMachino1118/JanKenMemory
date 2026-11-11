@@ -24,6 +24,35 @@ document.getElementById("themeToggle").onclick = () => {
   applyTheme(currentTheme() === "dark" ? "light" : "dark");
 };
 
+// ---------- collapsible sections ----------
+// Tapping a section's heading folds it away; which ones are folded is remembered per device.
+(() => {
+  let folded = [];
+  try { folded = JSON.parse(localStorage.getItem("jankenFolded") || "[]"); } catch (e) {}
+  document.querySelectorAll(".wrap > section").forEach((sec) => {
+    const head = sec.querySelector(".sec-head");
+    if (!head) return;
+    const set = (on) => {
+      sec.classList.toggle("collapsed", on);
+      head.setAttribute("aria-expanded", String(!on));
+    };
+    head.setAttribute("role", "button");
+    head.tabIndex = 0;
+    set(folded.includes(sec.id));
+    const toggle = () => {
+      const on = !sec.classList.contains("collapsed");
+      set(on);
+      folded = folded.filter((id) => id !== sec.id);
+      if (on) folded.push(sec.id);
+      try { localStorage.setItem("jankenFolded", JSON.stringify(folded)); } catch (e) {}
+    };
+    head.addEventListener("click", toggle);
+    head.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(); }
+    });
+  });
+})();
+
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
