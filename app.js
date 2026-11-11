@@ -191,15 +191,17 @@ function renderSeason() {
   ).join("");
   el.innerHTML = `
     <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px">${chips}</div>
-    <div class="sec-note" style="margin-bottom:6px">モード別に見る</div>
-    <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px">${modeChips}</div>
     <div class="sec-note" style="margin-bottom:10px">対戦は常に現在のシーズン（${esc(seasonLabel(currentSeason))}）に記録されます</div>
     <button class="btn ghost small" id="btnNewSeason">＋ 新しいシーズンを開始する</button>`;
   el.querySelectorAll("[data-season]").forEach((b) => {
-    b.onclick = () => { selectedSeason = Number(b.dataset.season); renderSeason(); renderAll(); };
+    b.onclick = () => { selectedSeason = Number(b.dataset.season); trendAnimUntil = 0; renderSeason(); renderAll(); };
   });
-  el.querySelectorAll("[data-mode-filter]").forEach((b) => {
-    b.onclick = () => { selectedMode = b.dataset.modeFilter; renderSeason(); renderAll(); };
+  // the mode filter sits right above the stats it filters (below the member list)
+  const mf = document.getElementById("modeFilter");
+  mf.innerHTML = `<div class="sec-note" style="margin-bottom:6px">モード別に見る</div>
+    <div style="display:flex;flex-wrap:wrap;gap:8px">${modeChips}</div>`;
+  mf.querySelectorAll("[data-mode-filter]").forEach((b) => {
+    b.onclick = () => { selectedMode = b.dataset.modeFilter; trendAnimUntil = 0; renderSeason(); renderAll(); };
   });
   document.getElementById("btnNewSeason").onclick = startNewSeason;
 }
