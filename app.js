@@ -1359,43 +1359,85 @@ function renderMonthly() {
 }
 
 // ---------- 貯金の推移 ----------
-function renderTrend() {
+let trendUnit = (() => { try { return localStorage.getItem("jankenTrendUnit"); } catch (e) { return null; } })() || "day";
+const TREND_UNITS = [["day", "日別", "日"], ["week", "週別", "週"], ["month", "月別", "か月"]];
+function trendBucket(iso) {
+  // which day / week (starting Monday) / month a round belongs to, and how to label it
+  const md = (dt) => `${dt.getMonth() + 1}/${dt.getDate()}`;
+  const dt = new Date(iso + "T00:00:00");
+  if (trendUnit === "month") return { key: iso.slice(0, 7), label: `${dt.getMonth() + 1}月` };
+  if (trendUnit === "week") {
+    dt.setDate(dt.getDate() - ((dt.getDay() + 6) % 7));
+    return { key: `${dt.getFullYear()}-${dt.getMonth()}-${dt.getDate()}`, label: `${md(dt)}週` };
+  }
+  return { key: iso, label: md(dt) };
+}
+
+function renderTrend(animate) {
   const el = document.getElementById("trend");
   const recs = visibleRecords().filter((r) => r.loserId);
   const ids = memberOrder.filter((id) => members[id] && recs.some((r) => r.participantIds.includes(id)));
   if (recs.length < 2 || !ids.length) { el.innerHTML = '<div class="empty">対戦が2回以上になるとグラフが出ます</div>'; return; }
   // running points after each round; a member's line stays flat while they sit a round out
-  const series = {};
-  ids.forEach((id) => { series[id] = [0]; });
+  const perRound = {};
+  ids.forEach((id) => { perRound[id] = [0]; });
   recs.forEach((r) => {
     const n = r.participantIds.length;
     ids.forEach((id) => {
-      const prev = series[id][series[id].length - 1];
-      series[id].push(!r.participantIds.includes(id) ? prev : id === r.loserId ? prev - (n - 1) : prev + 1);
+      const prev = perRound[id][perRound[id].length - 1];
+      perRound[id].push(!r.participantIds.includes(id) ? prev : id === r.loserId ? prev - (n - 1) : prev + 1);
     });
   });
+  // one point per day / week / month: the standing at the end of that period
+  const buckets = [];
+  recs.forEach((r, i) => {
+    const b = trendBucket(r.dateISO);
+    if (buckets.length && buckets[buckets.length - 1].key === b.key) buckets[buckets.length - 1].end = i + 1;
+    else buckets.push({ ...b, end: i + 1 });
+  });
+  const N = buckets.length;
+  const series = {};
+  ids.forEach((id) => { series[id] = [0, ...buckets.map((b) => perRound[id][b.end])]; });
   const all = ids.flatMap((id) => series[id]);
   const lo = Math.min(0, ...all), hi = Math.max(0, ...all);
   const W = 600, H = 240, L = 34, R = 62, T = 12, B = 24;
-  const x = (i) => L + (i / recs.length) * (W - L - R);
+  const x = (i) => L + (i / N) * (W - L - R);
   const y = (v) => T + ((hi - v) / (hi - lo || 1)) * (H - T - B);
   const fmt = (v) => (v > 0 ? "+" : "") + v;
   // name labels at the right end, pushed apart so they don't overlap
-  const labels = ids.map((id) => ({ id, y: y(series[id][recs.length]) })).sort((a, b) => a.y - b.y);
+  const labels = ids.map((id) => ({ id, y: y(series[id][N]) })).sort((a, b) => a.y - b.y);
   for (let i = 1; i < labels.length; i++) labels[i].y = Math.max(labels[i].y, labels[i - 1].y + 13);
   const over = labels.length ? labels[labels.length - 1].y - (H - B) : 0;
   if (over > 0) labels.forEach((l) => { l.y -= over; });
   const ticks = [...new Set([lo, 0, hi])];
-  const d = (iso) => `${Number(iso.slice(5, 7))}/${Number(iso.slice(8, 10))}`;
-  el.innerHTML = `<svg class="trend-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="貯金・借金の推移">
+  // period labels along the bottom: all of them when few, otherwise about six evenly spread
+  const step = Math.ceil(N / 6);
+  const marks = buckets.map((b, i) => ({ i: i + 1, label: b.label })).filter((m) => (N - m.i) % step === 0);
+  const unit = TREND_UNITS.find((u) => u[0] === trendUnit);
+  // after picking a period the lines are drawn in from the left (skipped for reduced motion)
+  const grow = animate === true && !(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+  const chips = TREND_UNITS.map(([val, label]) => `<button class="btn ghost small ${val === trendUnit ? "on" : ""}" data-trend-unit="${val}">${label}</button>`).join("");
+  el.innerHTML = `<div class="trend-head"><div class="trend-units">${chips}</div><span class="sec-note">${N}${unit[2]}分・${recs.length}戦</span></div>
+  <svg class="trend-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="貯金・借金の推移（${unit[1]}）">
     ${ticks.map((v) => `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" class="${v === 0 ? "zero" : "grid"}"/>
       <text x="${L - 6}" y="${y(v) + 4}" text-anchor="end" class="tick">${fmt(v)}</text>`).join("")}
-    <text x="${L}" y="${H - 6}" class="tick">${d(recs[0].dateISO)}</text>
-    <text x="${W - R}" y="${H - 6}" text-anchor="end" class="tick">${d(recs[recs.length - 1].dateISO)}（${recs.length}戦）</text>
+    ${marks.map((m) => `<text x="${x(m.i)}" y="${H - 6}" text-anchor="${m.i === N ? "end" : "middle"}" class="tick">${m.label}</text>`).join("")}
+    <defs><clipPath id="trendClip"><rect x="0" y="0" width="${grow ? L : W}" height="${H}">${grow
+      ? `<animate attributeName="width" from="${L}" to="${W - R + 6}" dur="0.9s" fill="freeze" calcMode="spline" keyTimes="0;1" keySplines="0.3 0 0.2 1"/>` : ""}</rect></clipPath></defs>
+    <g clip-path="url(#trendClip)">
     ${ids.map((id) => `<polyline fill="none" style="stroke:${colorVar(id)}" class="line" points="${series[id].map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ")}"/>
-      <circle cx="${x(recs.length)}" cy="${y(series[id][recs.length])}" r="3.5" style="fill:${colorVar(id)}"/>`).join("")}
-    ${labels.map((l) => `<text x="${W - R + 8}" y="${l.y + 4}" class="name" style="fill:${colorVar(l.id)}">${esc(members[l.id].name)} ${fmt(series[l.id][recs.length])}</text>`).join("")}
+      ${N <= 31 ? series[id].slice(1, -1).map((v, i) => `<circle cx="${x(i + 1).toFixed(1)}" cy="${y(v).toFixed(1)}" r="2.2" style="fill:${colorVar(id)}"/>`).join("") : ""}
+      <circle cx="${x(N)}" cy="${y(series[id][N])}" r="3.5" style="fill:${colorVar(id)}"/>`).join("")}
+    </g>
+    ${labels.map((l) => `<text x="${W - R + 8}" y="${l.y + 4}" class="name ${grow ? "late" : ""}">${esc(members[l.id].name)} ${fmt(series[l.id][N])}</text>`).join("")}
   </svg>`;
+  el.querySelectorAll("[data-trend-unit]").forEach((b) => {
+    b.onclick = () => {
+      trendUnit = b.dataset.trendUnit;
+      try { localStorage.setItem("jankenTrendUnit", trendUnit); } catch (e) {}
+      renderTrend(true);
+    };
+  });
 }
 
 // ---------- おごりの内訳 ----------
