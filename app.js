@@ -1408,8 +1408,30 @@ function trendBucket(iso) {
   return { key: iso, label: md(dt) };
 }
 
+// The lines are drawn in from the left once per page load, the first time the chart is
+// actually on screen (it usually starts below the fold), and again whenever a period is picked.
+const TREND_ANIM_MS = 1800;
+let trendPlayed = false, trendAnimUntil = 0;
+function trendOnScreen() {
+  // measured at the moment it matters: while the page is still filling in, the sections
+  // above the chart grow and push it out of view
+  const r = document.getElementById("trend").getBoundingClientRect();
+  return r.width > 0 && r.top < window.innerHeight - 110 && r.top > -150;
+}
+if ("IntersectionObserver" in window) {
+  new IntersectionObserver(() => {
+    if (!trendPlayed && trendOnScreen()) renderTrend();
+  }, { threshold: [0.2, 0.5, 0.8] }).observe(document.getElementById("trend"));
+}
+
 function renderTrend(animate) {
   const el = document.getElementById("trend");
+  if (animate !== true && Date.now() < trendAnimUntil) {
+    // data arrived while the lines are still being drawn: redraw once they have finished
+    clearTimeout(renderTrend.later);
+    renderTrend.later = setTimeout(() => renderTrend(), trendAnimUntil - Date.now() + 20);
+    return;
+  }
   const recs = visibleRecords().filter((r) => r.loserId);
   const ids = memberOrder.filter((id) => members[id] && recs.some((r) => r.participantIds.includes(id)));
   if (recs.length < 2 || !ids.length) { el.innerHTML = '<div class="empty">対戦が2回以上になるとグラフが出ます</div>'; return; }
@@ -1450,6 +1472,7 @@ function renderTrend(animate) {
   const marks = buckets.map((b, i) => ({ i: i + 1, label: b.label })).filter((m) => (N - m.i) % step === 0);
   const unit = TREND_UNITS.find((u) => u[0] === trendUnit);
   // after picking a period the lines are drawn in from the left (skipped for reduced motion)
+  if (!trendPlayed && trendOnScreen()) animate = true;
   const grow = animate === true && !(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
   const chips = TREND_UNITS.map(([val, label]) => `<button class="btn ghost small ${val === trendUnit ? "on" : ""}" data-trend-unit="${val}">${label}</button>`).join("");
   el.innerHTML = `<div class="trend-head"><div class="trend-units">${chips}</div><span class="sec-note">${N}${unit[2]}分・${recs.length}戦</span></div>
@@ -1466,6 +1489,7 @@ function renderTrend(animate) {
     </g>
     ${labels.map((l) => `<text x="${W - R + 8}" y="${l.y + 4}" class="name ${grow ? "late" : ""}">${esc(members[l.id].name)} ${fmt(series[l.id][N])}</text>`).join("")}
   </svg>`;
+  if (grow) { trendPlayed = true; trendAnimUntil = Date.now() + TREND_ANIM_MS; }
   el.querySelectorAll("[data-trend-unit]").forEach((b) => {
     b.onclick = () => {
       trendUnit = b.dataset.trendUnit;
