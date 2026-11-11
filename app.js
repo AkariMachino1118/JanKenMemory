@@ -1621,7 +1621,8 @@ function renderMatchups() {
     const c = m[me][op], o = m[op][me];
     if (!c.games) return "";
     const others = c.games - c.lost - o.lost;
-    const verdict = c.lost === o.lost ? "五分" : c.lost < o.lost ? `${nm(me)}さんが有利` : `${nm(op)}さんが有利`;
+    // decided by the hands the two threw against each other (wins vs. losses, draws aside)
+    const verdict = c.win === c.lose ? "五分" : c.win > c.lose ? `${nm(me)}さんが有利` : `${nm(op)}さんが有利`;
     return `<div class="matchup">
       <div class="habit-row-top"><span class="name"><span class="dot" style="background:${colorVar(op)}"></span>${nm(op)}さんと一緒の対戦 ${c.games}回</span><span class="total">${verdict}</span></div>
       <div class="matchup-label">どちらが負けたか</div>
