@@ -786,6 +786,12 @@ function adviseHands(opps, preds, mode) {
   return out;
 }
 
+function isTossUp(odds) {
+  // true when the three hands are within 3 points of each other: no real recommendation
+  const score = HAND_ORDER.map((h) => odds[h].safe - odds[h].lose).sort((a, b) => b - a);
+  return score[0] - score[2] < 0.03;
+}
+
 function bestOf(odds) {
   return HAND_ORDER.slice().sort((a, b) => (odds[b].safe - odds[b].lose) - (odds[a].safe - odds[a].lose))[0];
 }
@@ -804,8 +810,9 @@ function renderSecretAdvice(ctx) {
   const odds = adviseHands(opps, preds, ctx.mode);
   const best = bestOf(odds);
   const pitchNo = ctx.pitches.length + 1;
+  const tossUp = isTossUp(odds);
 
-  const options = HAND_ORDER.map((h) => `<div class="secret-opt ${h === best ? "best" : ""}">
+  const options = HAND_ORDER.map((h) => `<div class="secret-opt ${h === best && !tossUp ? "best" : ""}">
       <b>${h}</b><span>抜け ${pct(odds[h].safe)}</span><span class="neg">負け確 ${pct(odds[h].lose)}</span>
     </div>`).join("");
 
@@ -820,7 +827,7 @@ function renderSecretAdvice(ctx) {
       <div class="habit-row-top"><span class="name"><span class="dot" style="background:${colorVar(id)}"></span>${nameOf(id)}：${pr.p[top] >= 0.4 ? `${top}が濃厚` : pr.p[top] >= 0.36 ? `やや${top}寄り` : "ほぼ五分（読めず）"}</span>
       <span class="total">${acc}</span></div>
       <div class="habit-bar">${segs}</div>
-      <div class="secret-why">${pr.reasons.length ? pr.reasons.map((t) => `・${esc(t)}`).join("<br>") : "・この場面でははっきりした癖なし"}</div>
+      <div class="secret-why">${pr.p[top] >= 0.36 && pr.reasons.length ? pr.reasons.map((t) => `・${esc(t)}`).join("<br>") : "・この場面でははっきりした癖なし"}</div>
     </div>`;
   }).join("");
 
@@ -842,13 +849,14 @@ function renderSecretAdvice(ctx) {
     o2.forEach((id) => { pr2[id] = predictHand(id, c); });
     const od2 = adviseHands(o2, pr2, c.mode);
     const b2 = bestOf(od2);
+    if (isTossUp(od2)) break;   // nothing worth saying about a pitch that is a toss-up too
     steps.push(`<div class="secret-step"><span class="sec-note">${nx.draw ? "あいこ" : "残り"}想定（${scen}）→</span> ${c.pitches.length + 1}投目は <b>${b2}</b> <span class="sec-note">抜け ${pct(od2[b2].safe)}</span></div>`);
     cur = { odds: od2, best: b2 };
   }
 
   return `<div class="secret">
     <div class="secret-head">🔮 ${esc(members[myId]?.name ?? "")}さんへの裏アドバイス<span>${otoko ? "男気モード：じゃんけんに負ける手を狙います" : "通常モード：場面ごとの癖から予測"}</span></div>
-    <div class="secret-best">${pitchNo}投目、あなたのおすすめは <b>${best}</b></div>
+    <div class="secret-best">${tossUp ? `${pitchNo}投目は<b style="font-size:16px">どれを出してもほぼ同じ</b>です` : `${pitchNo}投目、あなたのおすすめは <b>${best}</b>`}</div>
     <div class="secret-opts">${options}</div>
     ${steps.length ? `<div class="secret-steps">${steps.join("")}</div>` : ""}
     ${oppRows}
@@ -873,7 +881,7 @@ function pitchResultFor(mine, oppHands, mode) {
 
 function secretReview(model) {
   const tally = () => ({ n: 0, safe: 0, lose: 0 });
-  const adv = { followed: tally(), other: tally(), best: tally(), random: tally() };
+  const adv = { followed: tally(), other: tally(), best: tally(), random: tally(), mine: tally(), mineRandom: tally(), tossUps: 0 };
   const opp = {};      // id -> {n, hit, recent: [credit...]}
   const me = { n: 0, hit: 0 };
   const habits = {};   // key -> {text(top), c: [..], shift}
@@ -903,9 +911,14 @@ function secretReview(model) {
     if (!opps.length || opps.length > 7) continue;
     const preds = {};
     opps.forEach((id) => { preds[id] = { p: Object.fromEntries(HAND_ORDER.map((h, j) => [h, e.preds[id][j]])) }; });
-    const best = bestOf(adviseHands(opps, preds, e.mode));
+    const odds = adviseHands(opps, preds, e.mode);
+    const best = bestOf(odds);
     const oppHands = e.throwers.filter(([id]) => id !== myId).map(([, h]) => h);
     const add = (t, res, w = 1) => { t.n += w; if (res === "safe") t.safe += w; if (res === "lose") t.lose += w; };
+    HAND_ORDER.forEach((h) => add(adv.mineRandom, pitchResultFor(h, oppHands, e.mode), 1 / 3));
+    add(adv.mine, pitchResultFor(mine, oppHands, e.mode));
+    // a toss-up is shown as "any hand will do", so it doesn't count as a recommendation
+    if (isTossUp(odds)) { adv.tossUps++; continue; }
     add(mine === best ? adv.followed : adv.other, pitchResultFor(mine, oppHands, e.mode));
     add(adv.best, pitchResultFor(best, oppHands, e.mode));
     HAND_ORDER.forEach((h) => add(adv.random, pitchResultFor(h, oppHands, e.mode), 1 / 3));
@@ -936,7 +949,9 @@ function renderSecretStats() {
   };
 
   const advRow = (label, t, ref) => `<tr class="${ref ? "ref" : ""}"><th>${label}</th><td>${Math.round(t.n)}</td><td>${rate(t, "safe")}</td><td>${rate(t, "lose")}</td></tr>`;
-  const advHtml = adv.best.n ? `<table class="mini">
+  const advHtml = !adv.mine.n ? '<div class="empty">あなたの投球データがまだありません</div>'
+    : !adv.best.n ? `<div class="secret-why">これまでの${adv.tossUps}投はすべて「どれを出してもほぼ同じ」で、はっきりしたおすすめが出た場面はまだありません。</div>`
+    : `<table class="mini">
       <thead><tr><th></th><th>回数</th><th>抜け</th><th>負け確</th></tr></thead>
       <tbody>
         ${advRow("おすすめと同じ手を出した時", adv.followed)}
@@ -944,8 +959,7 @@ function renderSecretStats() {
         ${advRow("（参考）全部おすすめ通りなら", adv.best, true)}
         ${advRow("（参考）でたらめに出したら", adv.random, true)}
       </tbody></table>
-      <div class="secret-why">おすすめは、その時点までのデータだけで出し直したものです。「抜け」はその1投で抜けられた割合、「負け確」はその1投で負けが決まった割合。参考の2行を比べて差が小さければ、おすすめはまだ効いていません。</div>`
-    : '<div class="empty">あなたの投球データがまだありません</div>';
+      <div class="secret-why">おすすめは、その時点までのデータだけで出し直したものです。「抜け」はその1投で抜けられた割合、「負け確」はその1投で負けが決まった割合。参考の2行を比べて差が小さければ、おすすめはまだ効いていません。${adv.tossUps ? `「どれを出してもほぼ同じ」だった${adv.tossUps}投は数えていません。` : ""}</div>`;
 
   const oppIds = memberOrder.filter((id) => opp[id]);
   const oppHtml = oppIds.length ? oppIds.map((id) => {
@@ -966,13 +980,13 @@ function renderSecretStats() {
   let meHtml = '<div class="empty">あなたの投球データがまだありません</div>';
   if (me.n) {
     const [label, cls] = verdict(me.hit, me.n);
-    const mine = { n: adv.followed.n + adv.other.n, lose: adv.followed.lose + adv.other.lose, safe: adv.followed.safe + adv.other.safe };
+    const mine = adv.mine;
     meHtml = `<div class="secret-opp">
         <div class="habit-row-top"><span class="name">あなたの手が読まれた割合</span><span class="total">${pct(me.hit / me.n)}（${me.n}投）</span></div>
         <div class="hitbar"><div class="fill ${cls === "good" ? "bad" : cls === "bad" ? "good" : ""}" style="width:${Math.min(100, (me.hit / me.n) * 100)}%"></div><div class="mark"></div></div>
         <div class="secret-why">${label === "読めている" ? "読まれています。下の癖を意識して散らしましょう" : label === "外れ気味" ? "うまく裏をかけています" : label === "データ少なめ" ? label : "当て推量並み＝読まれていません"}</div>
       </div>
-      ${mine.n ? `<div class="secret-why">あなたが実際に出した手：抜け ${rate(mine, "safe")}・負け確 ${rate(mine, "lose")}（でたらめに出した場合：抜け ${rate(adv.random, "safe")}・負け確 ${rate(adv.random, "lose")}）</div>` : ""}
+      ${mine.n ? `<div class="secret-why">あなたが実際に出した手：抜け ${rate(mine, "safe")}・負け確 ${rate(mine, "lose")}（でたらめに出した場合：抜け ${rate(adv.mineRandom, "safe")}・負け確 ${rate(adv.mineRandom, "lose")}）</div>` : ""}
       <div class="secret-why">${patterns.length
         ? "<b>読まれやすい癖</b><br>" + patterns.map((x) => `・${esc(x.text)}（${x.c}/${x.n}回・${pct(x.c / x.n)}）`).join("<br>")
         : "・はっきりした癖は見つかりません（読まれにくい出し方です）"}</div>`;
