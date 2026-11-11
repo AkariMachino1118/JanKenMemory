@@ -3,7 +3,7 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/10.14.1/fireba
 import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
 import {
   getFirestore, doc, setDoc, updateDoc, deleteDoc, onSnapshot,
-  collection, runTransaction, serverTimestamp, arrayUnion, increment,
+  collection, runTransaction, serverTimestamp, arrayUnion, arrayRemove, increment,
 } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
 
 // ---------- theme toggle ----------
@@ -49,6 +49,7 @@ let seasons = {};        // id(string) -> {label, startedAt}
 let currentSeason = 1;   // the season new rounds are recorded into
 let selectedSeason = 1;    // the season currently being viewed (defaults to currentSeason)
 let seasonMetaLoaded = false;
+let settlements = [];     // [{s, from, to, amt, at}] — payments already settled, kept on meta/season
 let selectedMode = "all";  // "all" | "通常モード" | "男気モード" — filters the stats below
 
 // ---------- seed (embedded, only used once if the store is empty) ----------
@@ -102,7 +103,8 @@ function boot() {
   onSnapshot(recordsCol, (snap) => {
     records = [];
     snap.forEach((d) => records.push({ id: d.id, ...d.data() }));
-    records.sort((a, b) => (a.dateISO < b.dateISO ? -1 : a.dateISO > b.dateISO ? 1 : 0));
+    records.sort((a, b) => (a.dateISO < b.dateISO ? -1 : a.dateISO > b.dateISO ? 1
+      : (a.createdAt?.toMillis?.() ?? 0) - (b.createdAt?.toMillis?.() ?? 0)));
     renderAll();
   });
   onSnapshot(sessionRef, (snap) => {
@@ -117,6 +119,7 @@ function boot() {
   });
   onSnapshot(seasonMetaRef, (snap) => {
     currentSeason = snap.exists() ? (snap.data().current || 1) : 1;
+    settlements = snap.exists() ? (snap.data().settlements || []) : [];
     if (!seasonMetaLoaded) { selectedSeason = currentSeason; seasonMetaLoaded = true; }
     renderSeason();
     renderAll();
@@ -159,7 +162,7 @@ async function startNewSeason() {
   if (label === null) return;
   if (!confirm(`「${label}」を開始します。よろしいですか？（これ以降の対戦はこのシーズンに記録されます）`)) return;
   await runTransaction(db, async (tx) => {
-    tx.set(seasonMetaRef, { current: next });
+    tx.set(seasonMetaRef, { current: next }, { merge: true });
     tx.set(doc(seasonsCol, String(next)), { label, startedAt: serverTimestamp() });
   });
   selectedSeason = next;
@@ -466,6 +469,7 @@ document.querySelector("header.top h1.title").addEventListener("click", () => {
   try { localStorage.setItem("jankenSecret", secretOn ? "1" : "0"); } catch (e) {}
   showToast(secretOn ? "🔮 裏モード ON" : "裏モード OFF");
   renderRound();
+  renderSecretStats();
 });
 
 function showToast(text) {
@@ -533,13 +537,12 @@ function situation(id, mode, prior, poolSize, lastRound) {
 const POS_LABEL = ["1投目", "2投目", "3投目以降"];
 // Each expert looks at one aspect of the situation. `key` returns null when the expert has
 // nothing to say (e.g. no previous pitch yet); `anchor` makes it predict a relative move.
+// "even" always says 1/3 each: when no habit really predicts better than a coin flip, the
+// weight drifts to it and the percentages shown stay modest instead of overconfident.
 const EXPERTS = [
+  { name: "even", key: () => "*", say: () => "" },
   { name: "base", key: (s) => `${s.id}|${s.mode}`,
     say: (s, top) => `${s.mode === "男気モード" ? "男気" : "通常"}では${top}が多い` },
-  { name: "pos", key: (s) => `${s.id}|${s.mode}|${Math.min(s.i, 2)}`,
-    say: (s, top) => `${POS_LABEL[Math.min(s.i, 2)]}は${top}が多い` },
-  { name: "size", key: (s) => `${s.id}|${s.mode}|${s.poolSize <= 2 ? 2 : 3}|${s.i ? 1 : 0}`,
-    say: (s, top) => `${s.poolSize <= 2 ? "2人" : "3人以上"}の${s.i ? "途中" : "1投目"}は${top}が多い` },
   { name: "trans", key: (s) => s.prev && `${s.id}|${s.mode}|${s.prev}`,
     say: (s, top) => `前が${s.prev}の次は${top}が多い` },
   { name: "react", key: (s) => s.outcome && `${s.id}|${s.mode}|${s.outcome}`, anchor: "prev",
@@ -595,50 +598,69 @@ function predictWith(model, s) {
   const base = baseDist(model.tables, s);
   const parts = [];
   EXPERTS.forEach((ex, e) => {
-    const d = ex.name === "base" ? { p: base.p, n: base.n } : expertDist(model.tables, ex, s, base);
+    const d = ex.name === "even" ? { p: [1 / 3, 1 / 3, 1 / 3], n: 0 }
+      : ex.name === "base" ? { p: base.p, n: base.n } : expertDist(model.tables, ex, s, base);
     if (d) parts.push({ e, ex, d, w: Math.exp(model.eta * model.regret[e]) });
   });
   const wt = parts.reduce((a, x) => a + x.w, 0);
-  const p = [0, 0, 0];
-  parts.forEach((x) => x.d.p.forEach((v, k) => { p[k] += (x.w / wt) * v; }));
-  return { p, parts, wt };
+  const mix = [0, 0, 0];
+  parts.forEach((x) => x.d.p.forEach((v, k) => { mix[k] += (x.w / wt) * v; }));
+  // what is shown and acted on is pulled halfway back to even odds: in backtests the raw
+  // blend scored worse than plain 1/3-each, and this brings it level
+  const p = mix.map((v) => (v + 1 / 3) / 2);
+  return { p, mix, parts, wt };
 }
 
 let secretModel = null, secretModelSrc = null;
+function hitCredit(p, k) {
+  // 1 when hand k was the top prediction (shared when several hands tie for the top)
+  const mx = Math.max(...p);
+  return p[k] === mx ? 1 / p.filter((v) => v === mx).length : 0;
+}
 function getSecretModel() {
-  // Replays every recorded pitch in date order. Before learning from each throw, every expert
-  // predicts it from what was known up to then; experts that would have predicted better than
-  // the blend gain weight (sleeping-experts Hedge). The blend's own hit rate is kept as an
-  // honest backtest of how well the model really reads each person.
+  // Replays every recorded pitch in date order. Before learning from a pitch, every expert
+  // predicts each thrower from what was known up to then; experts that would have predicted
+  // better than the blend gain weight (sleeping-experts Hedge). Each of those "blind"
+  // predictions is kept in `log`, which is what the review of the advisor is built from.
   if (secretModelSrc === records && secretModel) return secretModel;
-  const model = { tables: new Map(), regret: EXPERTS.map(() => 0), eta: 0.5, lastRound: {}, acc: {} };
-  const ordered = records.slice().sort((a, b) =>
-    a.dateISO < b.dateISO ? -1 : a.dateISO > b.dateISO ? 1 : (a.createdAt?.toMillis?.() ?? 0) - (b.createdAt?.toMillis?.() ?? 0));
-  for (const r of ordered) {
+  const model = { tables: new Map(), regret: EXPERTS.map(() => 0), eta: 0.5, lastRound: {}, acc: {}, log: [] };
+  for (const r of records) {
     const ps = r.pitches || [];
     ps.forEach((pitch, i) => {
       const throwers = pitchThrowers(pitch);
-      for (const [id, hand] of throwers) {
-        const s = situation(id, r.mode, ps.slice(0, i), throwers.length, model.lastRound[id]);
+      const prior = ps.slice(0, i);
+      const made = throwers.map(([id]) => {
+        const s = situation(id, r.mode, prior, throwers.length, model.lastRound[id]);
+        return { s, pred: predictWith(model, s) };
+      });
+      const entry = { mode: r.mode, throwers, sits: {}, preds: {} };
+      throwers.forEach(([id, hand], j) => {
+        const { s, pred } = made[j];
         const k = HAND_ORDER.indexOf(hand);
-        const pred = predictWith(model, s);
-        const lossMix = -Math.log(pred.p[k]);
-        pred.parts.forEach((x) => { model.regret[x.e] += lossMix + Math.log(x.d.p[k]); });
+        entry.sits[id] = s;
+        entry.preds[id] = pred.p;
         const acc = (model.acc[`${id}|${r.mode}`] ||= { hit: 0, n: 0 });
         acc.n++;
-        if (pred.p.indexOf(Math.max(...pred.p)) === k) acc.hit++;
-        // learn the throw
+        acc.hit += hitCredit(pred.p, k);
+      });
+      model.log.push(entry);
+      // learn the pitch
+      throwers.forEach(([id, hand], j) => {
+        const { s, pred } = made[j];
+        const k = HAND_ORDER.indexOf(hand);
+        const lossMix = -Math.log(pred.mix[k]);
+        pred.parts.forEach((x) => { model.regret[x.e] += lossMix + Math.log(x.d.p[k]); });
         bump(model.tables, `base|${id}|${r.mode}`, k);
         bump(model.tables, `all|${id}`, k);
         EXPERTS.forEach((ex) => {
-          if (ex.name === "base") return;
+          if (ex.name === "base" || ex.name === "even") return;
           const key = ex.key(s);
           if (!key) return;
           const anchor = anchorOf(ex, s);
           if (ex.anchor && !anchor) return;
           bump(model.tables, `${ex.name}|${key}`, ex.anchor ? SHIFTS.indexOf(shiftOf(anchor, hand)) : k);
         });
-      }
+      });
     });
     for (const id of r.participantIds || []) {
       const first = realHand(ps[0]?.hands?.[id]);
@@ -741,9 +763,9 @@ function renderSecretAdvice(ctx) {
     const segs = HAND_ORDER.map((h) =>
       `<div class="habit-seg" style="width:${pr.p[h] * 100}%;background:${handColor[h]};color:#fff">${pr.p[h] >= 0.18 ? pct(pr.p[h]) : ""}</div>`
     ).join("");
-    const acc = pr.acc && pr.acc.n >= 5 ? `的中率 ${pct(pr.acc.hit / pr.acc.n)}（${pr.acc.n}投で検証）` : "データ少なめ";
+    const acc = pr.acc && pr.acc.n >= 5 ? `的中 ${pct(pr.acc.hit / pr.acc.n)}／基準33%（${pr.acc.n}投）` : "データ少なめ";
     return `<div class="secret-opp">
-      <div class="habit-row-top"><span class="name"><span class="dot" style="background:${colorVar(id)}"></span>${nameOf(id)}：${top}が濃厚</span>
+      <div class="habit-row-top"><span class="name"><span class="dot" style="background:${colorVar(id)}"></span>${nameOf(id)}：${pr.p[top] >= 0.4 ? `${top}が濃厚` : pr.p[top] >= 0.36 ? `やや${top}寄り` : "ほぼ五分（読めず）"}</span>
       <span class="total">${acc}</span></div>
       <div class="habit-bar">${segs}</div>
       <div class="secret-why">${pr.reasons.length ? pr.reasons.map((t) => `・${esc(t)}`).join("<br>") : "・この場面でははっきりした癖なし"}</div>
@@ -779,6 +801,140 @@ function renderSecretAdvice(ctx) {
     ${steps.length ? `<div class="secret-steps">${steps.join("")}</div>` : ""}
     ${oppRows}
   </div>`;
+}
+
+// ---------- secret advisor: review (裏分析の成績 / 自分の癖診断) ----------
+// Shown only while 裏モード is on, on the logged-in member's own device. Everything is
+// recomputed from the model's blind predictions (`log`), i.e. what the advisor would have
+// said at the time with only the data it had then.
+function pitchResultFor(mine, oppHands, mode) {
+  // what one pitch does to me: "safe" (I'm out of it), "lose" (I'm the one left), "cont"
+  const all = [mine, ...oppHands];
+  const types = new Set(all);
+  if (types.size !== 2) return "cont";
+  const [t1, t2] = [...types];
+  const winType = BEATS[t1] === t2 ? t1 : t2;
+  const continueType = mode === "男気モード" ? winType : (winType === t1 ? t2 : t1);
+  if (mine !== continueType) return "safe";
+  return all.filter((h) => h === continueType).length === 1 ? "lose" : "cont";
+}
+
+function secretReview(model) {
+  const tally = () => ({ n: 0, safe: 0, lose: 0 });
+  const adv = { followed: tally(), other: tally(), best: tally(), random: tally() };
+  const opp = {};      // id -> {n, hit, recent: [credit...]}
+  const me = { n: 0, hit: 0 };
+  const habits = {};   // key -> {text(top), c: [..], shift}
+  const habit = (key, k, text) => { (habits[key] ||= { c: [0, 0, 0], text }).c[k]++; };
+  for (const e of model.log) {
+    for (const [id, hand] of e.throwers) {
+      const credit = hitCredit(e.preds[id], HAND_ORDER.indexOf(hand));
+      if (id === myId) { me.n++; me.hit += credit; continue; }
+      const o = (opp[id] ||= { n: 0, hit: 0, recent: [] });
+      o.n++; o.hit += credit; o.recent.push(credit);
+    }
+    const mine = e.throwers.find(([id]) => id === myId)?.[1];
+    if (!mine) continue;
+    // my own habits, as an opponent's advisor would see them
+    const s = e.sits[myId];
+    const k = HAND_ORDER.indexOf(mine);
+    const modeShort = e.mode === "男気モード" ? "男気モード" : "通常モード";
+    habit(`all|${e.mode}`, k, (top) => `${modeShort}では${top}が多い`);
+    if (s.i === 0) habit(`open|${e.mode}`, k, (top) => `${modeShort}の1投目は${top}が多い`);
+    if (s.prev) {
+      const sh = SHIFTS.indexOf(shiftOf(s.prev, mine));
+      habit(`prev|${s.prev}`, k, (top) => `${s.prev}を出した次は${top}が多い`);
+      habit(`out|${s.outcome}`, sh, (top) => `${OUTCOME_LABEL[s.outcome]}後は${SHIFT_LABEL[top]}がち`);
+      if (s.streak >= 2) habit("streak", sh, (top) => `同じ手が2回以上続いた後は${SHIFT_LABEL[top]}がち`);
+    }
+    const opps = e.throwers.map(([id]) => id).filter((id) => id !== myId);
+    if (!opps.length || opps.length > 7) continue;
+    const preds = {};
+    opps.forEach((id) => { preds[id] = { p: Object.fromEntries(HAND_ORDER.map((h, j) => [h, e.preds[id][j]])) }; });
+    const best = bestOf(adviseHands(opps, preds, e.mode));
+    const oppHands = e.throwers.filter(([id]) => id !== myId).map(([, h]) => h);
+    const add = (t, res, w = 1) => { t.n += w; if (res === "safe") t.safe += w; if (res === "lose") t.lose += w; };
+    add(mine === best ? adv.followed : adv.other, pitchResultFor(mine, oppHands, e.mode));
+    add(adv.best, pitchResultFor(best, oppHands, e.mode));
+    HAND_ORDER.forEach((h) => add(adv.random, pitchResultFor(h, oppHands, e.mode), 1 / 3));
+  }
+  const patterns = Object.entries(habits).map(([key, h]) => {
+    const n = h.c[0] + h.c[1] + h.c[2];
+    const top = h.c.indexOf(Math.max(...h.c));
+    const shift = key.startsWith("out|") || key === "streak";
+    return { n, c: h.c[top], z: (h.c[top] - n / 3) / Math.sqrt(n * 2 / 9), text: h.text(shift ? SHIFTS[top] : HAND_ORDER[top]) };
+  }).filter((x) => x.n >= 9 && x.z >= 1.6).sort((a, b) => b.z - a.z).slice(0, 4);
+  return { adv, opp, me, patterns };
+}
+
+function renderSecretStats() {
+  const sec = document.getElementById("sec-secret");
+  if (!sec) return;
+  const show = secretOn && myId && members[myId];
+  sec.style.display = show ? "" : "none";
+  if (!show) return;
+  const el = document.getElementById("secretStats");
+  const { adv, opp, me, patterns } = secretReview(getSecretModel());
+  const pct = (v) => `${Math.round(v * 100)}%`;
+  const rate = (t, key) => (t.n ? pct(t[key] / t.n) : "–");
+  const verdict = (hit, n) => {
+    // how far the hit rate is from the 1/3 a blind guess gets, allowing for the sample size
+    const z = (hit / n - 1 / 3) / Math.sqrt((2 / 9) / n);
+    return n < 20 ? ["データ少なめ", ""] : z >= 1.6 ? ["読めている", "good"] : z <= -1.6 ? ["外れ気味", "bad"] : ["当て推量並み", ""];
+  };
+
+  const advRow = (label, t, ref) => `<tr class="${ref ? "ref" : ""}"><th>${label}</th><td>${Math.round(t.n)}</td><td>${rate(t, "safe")}</td><td>${rate(t, "lose")}</td></tr>`;
+  const advHtml = adv.best.n ? `<table class="mini">
+      <thead><tr><th></th><th>回数</th><th>抜け</th><th>負け確</th></tr></thead>
+      <tbody>
+        ${advRow("おすすめと同じ手を出した時", adv.followed)}
+        ${advRow("違う手を出した時", adv.other)}
+        ${advRow("（参考）全部おすすめ通りなら", adv.best, true)}
+        ${advRow("（参考）でたらめに出したら", adv.random, true)}
+      </tbody></table>
+      <div class="secret-why">おすすめは、その時点までのデータだけで出し直したものです。「抜け」はその1投で抜けられた割合、「負け確」はその1投で負けが決まった割合。参考の2行を比べて差が小さければ、おすすめはまだ効いていません。</div>`
+    : '<div class="empty">あなたの投球データがまだありません</div>';
+
+  const oppIds = memberOrder.filter((id) => opp[id]);
+  const oppHtml = oppIds.length ? oppIds.map((id) => {
+    const o = opp[id];
+    const [label, cls] = verdict(o.hit, o.n);
+    const recent = o.recent.slice(-30);
+    const recentRate = recent.reduce((a, b) => a + b, 0) / recent.length;
+    const w = Math.min(100, (o.hit / o.n) * 100);
+    return `<div class="secret-opp">
+      <div class="habit-row-top"><span class="name"><span class="dot" style="background:${colorVar(id)}"></span>${esc(members[id]?.name ?? id)}</span>
+      <span class="total">${pct(o.hit / o.n)}（${o.n}投）・直近${recent.length}投 ${pct(recentRate)}</span></div>
+      <div class="hitbar"><div class="fill ${cls}" style="width:${w}%"></div><div class="mark"></div></div>
+      <div class="secret-why">${label}</div>
+    </div>`;
+  }).join("") + '<div class="secret-why">縦線が当て推量の33%です。線を大きく超えていなければ、その人の手は読めていません。</div>'
+    : '<div class="empty">相手の投球データがまだありません</div>';
+
+  let meHtml = '<div class="empty">あなたの投球データがまだありません</div>';
+  if (me.n) {
+    const [label, cls] = verdict(me.hit, me.n);
+    const mine = { n: adv.followed.n + adv.other.n, lose: adv.followed.lose + adv.other.lose, safe: adv.followed.safe + adv.other.safe };
+    meHtml = `<div class="secret-opp">
+        <div class="habit-row-top"><span class="name">あなたの手が読まれた割合</span><span class="total">${pct(me.hit / me.n)}（${me.n}投）</span></div>
+        <div class="hitbar"><div class="fill ${cls === "good" ? "bad" : cls === "bad" ? "good" : ""}" style="width:${Math.min(100, (me.hit / me.n) * 100)}%"></div><div class="mark"></div></div>
+        <div class="secret-why">${label === "読めている" ? "読まれています。下の癖を意識して散らしましょう" : label === "外れ気味" ? "うまく裏をかけています" : label === "データ少なめ" ? label : "当て推量並み＝読まれていません"}</div>
+      </div>
+      ${mine.n ? `<div class="secret-why">あなたが実際に出した手：抜け ${rate(mine, "safe")}・負け確 ${rate(mine, "lose")}（でたらめに出した場合：抜け ${rate(adv.random, "safe")}・負け確 ${rate(adv.random, "lose")}）</div>` : ""}
+      <div class="secret-why">${patterns.length
+        ? "<b>読まれやすい癖</b><br>" + patterns.map((x) => `・${esc(x.text)}（${x.c}/${x.n}回・${pct(x.c / x.n)}）`).join("<br>")
+        : "・はっきりした癖は見つかりません（読まれにくい出し方です）"}</div>`;
+  }
+
+  el.innerHTML = `<div class="secret" style="margin-top:0">
+      <div class="secret-head">📊 おすすめの成績<span>${esc(members[myId].name)}さんの全対戦</span></div>${advHtml}
+    </div>
+    <div class="secret">
+      <div class="secret-head">🎯 相手ごとの的中率<span>当て推量なら33%</span></div>${oppHtml}
+    </div>
+    <div class="secret">
+      <div class="secret-head">🪞 あなたの癖診断<span>相手から見たあなた</span></div>${meHtml}
+    </div>`;
 }
 
 let resolving = false;
@@ -912,12 +1068,17 @@ function computeSeasonStats(recs) {
 function renderAll() {
   renderMembers();
   renderRound();
+  renderSecretStats();
   renderStandings();
+  renderTrend();
   renderPayments();
+  renderSettle();
   renderHabits();
   renderLoseHabits();
   renderHeatmap();
   renderMonthly();
+  renderMatchups();
+  renderTitles();
   renderRecords();
 }
 
@@ -1118,6 +1279,212 @@ function renderMonthly() {
     return `<div class="trend-group"><div class="trend-bars">${bars}</div><div class="trend-label">${mo.slice(5)}月</div></div>`;
   }).join("");
   el.innerHTML = legend + `<div class="trend-groups">${groups}</div>`;
+}
+
+// ---------- 貯金の推移 ----------
+function renderTrend() {
+  const el = document.getElementById("trend");
+  const recs = visibleRecords().filter((r) => r.loserId);
+  const ids = memberOrder.filter((id) => members[id] && recs.some((r) => r.participantIds.includes(id)));
+  if (recs.length < 2 || !ids.length) { el.innerHTML = '<div class="empty">対戦が2回以上になるとグラフが出ます</div>'; return; }
+  // running points after each round; a member's line stays flat while they sit a round out
+  const series = {};
+  ids.forEach((id) => { series[id] = [0]; });
+  recs.forEach((r) => {
+    const n = r.participantIds.length;
+    ids.forEach((id) => {
+      const prev = series[id][series[id].length - 1];
+      series[id].push(!r.participantIds.includes(id) ? prev : id === r.loserId ? prev - (n - 1) : prev + 1);
+    });
+  });
+  const all = ids.flatMap((id) => series[id]);
+  const lo = Math.min(0, ...all), hi = Math.max(0, ...all);
+  const W = 600, H = 240, L = 34, R = 62, T = 12, B = 24;
+  const x = (i) => L + (i / recs.length) * (W - L - R);
+  const y = (v) => T + ((hi - v) / (hi - lo || 1)) * (H - T - B);
+  const fmt = (v) => (v > 0 ? "+" : "") + v;
+  // name labels at the right end, pushed apart so they don't overlap
+  const labels = ids.map((id) => ({ id, y: y(series[id][recs.length]) })).sort((a, b) => a.y - b.y);
+  for (let i = 1; i < labels.length; i++) labels[i].y = Math.max(labels[i].y, labels[i - 1].y + 13);
+  const over = labels.length ? labels[labels.length - 1].y - (H - B) : 0;
+  if (over > 0) labels.forEach((l) => { l.y -= over; });
+  const ticks = [...new Set([lo, 0, hi])];
+  const d = (iso) => `${Number(iso.slice(5, 7))}/${Number(iso.slice(8, 10))}`;
+  el.innerHTML = `<svg class="trend-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="貯金・借金の推移">
+    ${ticks.map((v) => `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" class="${v === 0 ? "zero" : "grid"}"/>
+      <text x="${L - 6}" y="${y(v) + 4}" text-anchor="end" class="tick">${fmt(v)}</text>`).join("")}
+    <text x="${L}" y="${H - 6}" class="tick">${d(recs[0].dateISO)}</text>
+    <text x="${W - R}" y="${H - 6}" text-anchor="end" class="tick">${d(recs[recs.length - 1].dateISO)}（${recs.length}戦）</text>
+    ${ids.map((id) => `<polyline fill="none" style="stroke:${colorVar(id)}" class="line" points="${series[id].map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ")}"/>
+      <circle cx="${x(recs.length)}" cy="${y(series[id][recs.length])}" r="3.5" style="fill:${colorVar(id)}"/>`).join("")}
+    ${labels.map((l) => `<text x="${W - R + 8}" y="${l.y + 4}" class="name" style="fill:${colorVar(l.id)}">${esc(members[l.id].name)} ${fmt(series[l.id][recs.length])}</text>`).join("")}
+  </svg>`;
+}
+
+// ---------- 精算 ----------
+function settleBalances() {
+  // What each member is still owed (+) or still owes (−) in the season being viewed, over both
+  // modes. Only rounds where winners were given amounts count: an older loser-only amount has
+  // nobody to receive it. Transfers already marked as settled are taken off.
+  const bal = {};
+  let skipped = 0;
+  for (const r of records) {
+    if ((r.seasonId || 1) !== selectedSeason) continue;
+    const amts = recordAmounts(r);
+    const sum = Object.values(amts).reduce((a, b) => a + b, 0);
+    if (sum !== 0) { skipped++; continue; }
+    for (const [id, v] of Object.entries(amts)) bal[id] = (bal[id] || 0) + v;
+  }
+  const done = settlements.filter((t) => t.s === selectedSeason);
+  for (const t of done) {
+    bal[t.from] = (bal[t.from] || 0) + t.amt;
+    bal[t.to] = (bal[t.to] || 0) - t.amt;
+  }
+  return { bal, done, skipped };
+}
+
+function settlePlan(bal) {
+  // fewest transfers in practice: the biggest debtor pays the biggest creditor, repeatedly
+  const owed = Object.entries(bal).filter(([, v]) => v > 0).map(([id, v]) => ({ id, v })).sort((a, b) => b.v - a.v);
+  const owes = Object.entries(bal).filter(([, v]) => v < 0).map(([id, v]) => ({ id, v: -v })).sort((a, b) => b.v - a.v);
+  const plan = [];
+  while (owed.length && owes.length) {
+    const amt = Math.min(owed[0].v, owes[0].v);
+    plan.push({ from: owes[0].id, to: owed[0].id, amt });
+    owed[0].v -= amt; owes[0].v -= amt;
+    if (!owed[0].v) owed.shift(); else owed.sort((a, b) => b.v - a.v);
+    if (owes.length && !owes[0].v) owes.shift(); else owes.sort((a, b) => b.v - a.v);
+  }
+  return plan;
+}
+
+function renderSettle() {
+  const el = document.getElementById("settle");
+  const { bal, done, skipped } = settleBalances();
+  const plan = settlePlan(bal);
+  if (!plan.length && !done.length) { el.innerHTML = ""; return; }
+  const who = (id) => `<span class="dot" style="background:${colorVar(id)}"></span>${esc(members[id]?.name ?? id)}`;
+  const line = (t, btn) => `<div class="settle-row"><span class="settle-who">${who(t.from)}<span class="arrow">→</span>${who(t.to)}</span>
+    <span class="settle-amt">${t.amt.toLocaleString()}円</span>${btn}</div>`;
+  const planHtml = plan.length
+    ? plan.map((t, i) => line(t, myId ? `<button class="btn small" data-settle="${i}">精算済みにする</button>` : "")).join("")
+    : '<div class="settle-ok">✅ 精算はすべて済んでいます</div>';
+  const doneHtml = done.length ? `<details><summary>精算済み（${done.length}件）</summary>
+      ${done.map((t, i) => line(t, myId ? `<button class="btn ghost small" data-unsettle="${i}">取消</button>` : "")).join("")}</details>` : "";
+  el.innerHTML = `<div class="card pad settle">
+    <div class="settle-head">精算<span>${esc(seasonLabel(selectedSeason))}・両モード合計</span></div>
+    ${planHtml}${doneHtml}
+    ${skipped ? `<div class="stand-note">受け取る人が入力されていない金額（${skipped}件）は精算の対象外です</div>` : ""}
+  </div>`;
+  el.querySelectorAll("[data-settle]").forEach((b) => {
+    b.onclick = async () => {
+      const t = plan[Number(b.dataset.settle)];
+      if (!confirm(`${members[t.from]?.name ?? t.from}さん → ${members[t.to]?.name ?? t.to}さん ${t.amt.toLocaleString()}円 を精算済みにしますか？`)) return;
+      await setDoc(seasonMetaRef, { settlements: arrayUnion({ s: selectedSeason, from: t.from, to: t.to, amt: t.amt, at: Date.now() }) }, { merge: true });
+    };
+  });
+  el.querySelectorAll("[data-unsettle]").forEach((b) => {
+    b.onclick = async () => {
+      if (!confirm("この精算を取り消しますか？")) return;
+      await updateDoc(seasonMetaRef, { settlements: arrayRemove(done[Number(b.dataset.unsettle)]) });
+    };
+  });
+}
+
+// ---------- 相性表 ----------
+function renderMatchups() {
+  const el = document.getElementById("matchups");
+  const recs = visibleRecords().filter((r) => r.loserId);
+  const ids = memberOrder.filter((id) => members[id] && recs.some((r) => r.participantIds.includes(id)));
+  if (ids.length < 2) { el.innerHTML = '<div class="empty">データなし</div>'; return; }
+  const cell = () => ({ games: 0, lost: 0, win: 0, lose: 0, tie: 0 });
+  const m = {};
+  ids.forEach((a) => { m[a] = {}; ids.forEach((b) => { m[a][b] = cell(); }); });
+  for (const r of recs) {
+    for (const a of r.participantIds) for (const b of r.participantIds) {
+      if (a === b || !m[a]?.[b]) continue;
+      m[a][b].games++;
+      if (r.loserId === a) m[a][b].lost++;
+    }
+    for (const p of r.pitches || []) {
+      const th = pitchThrowers(p);
+      for (const [a, ha] of th) for (const [b, hb] of th) {
+        if (a === b || !m[a]?.[b]) continue;
+        if (ha === hb) m[a][b].tie++; else if (BEATS[ha] === hb) m[a][b].win++; else m[a][b].lose++;
+      }
+    }
+  }
+  const head = `<thead><tr><th class="rowhead"></th>${ids.map((id) => `<th>${esc(members[id].name)}</th>`).join("")}</tr></thead>`;
+  const table = (fn) => `<table class="heat">${head}<tbody>${ids.map((a) =>
+    `<tr><th class="rowhead"><span class="dot" style="background:${colorVar(a)}"></span>${esc(members[a].name)}</th>${ids.map((b) =>
+      a === b ? '<td class="cell zero">＼</td>' : fn(m[a][b])).join("")}</tr>`).join("")}</tbody></table>`;
+  const lostTable = table((c) => {
+    if (!c.games) return '<td class="cell zero">–</td>';
+    const a = c.lost ? 0.12 + (c.lost / c.games) * 0.66 : 0;
+    return `<td class="cell" style="${a ? `background:rgba(194,59,52,${a});` : ""}color:var(--ink)">${c.lost}<span class="of">/${c.games}</span></td>`;
+  });
+  const handTable = table((c) => {
+    const n = c.win + c.lose;
+    if (!n && !c.tie) return '<td class="cell zero">–</td>';
+    const diff = n ? (c.win - c.lose) / n : 0;
+    const bg = diff > 0 ? `rgba(47,158,99,${0.1 + diff * 0.5})` : diff < 0 ? `rgba(194,59,52,${0.1 - diff * 0.5})` : "";
+    return `<td class="cell" style="${bg ? `background:${bg};` : ""}color:var(--ink)">${c.win}<span class="of">-${c.lose}-${c.tie}</span></td>`;
+  });
+  el.innerHTML = `<div class="match-cap"><b>一緒に対戦した時の負け数</b>（横の人が負けた回数 / 同席した対戦数）</div>${lostTable}
+    <div class="match-cap" style="margin-top:16px"><b>じゃんけんの手の直接対決</b>（横の人から見た 勝-負-あいこ。全投球）</div>${handTable}`;
+}
+
+// ---------- 記録・称号 ----------
+function renderTitles() {
+  const el = document.getElementById("titles");
+  const recs = visibleRecords().filter((r) => r.loserId);
+  if (!recs.length) { el.innerHTML = '<div class="empty">データなし</div>'; return; }
+  const name = (id) => esc(members[id]?.name ?? id);
+  const day = (iso) => `${Number(iso.slice(5, 7))}/${Number(iso.slice(8, 10))}`;
+  // keep every holder of the best value, so ties share the title
+  const best = () => ({ v: 0, who: [] });
+  const offer = (b, v, who) => { if (v > b.v) { b.v = v; b.who = [who]; } else if (v === b.v && v > 0 && !b.who.includes(who)) b.who.push(who); };
+
+  const loseStreak = best(), safeStreak = best(), dayLosses = best(), oneShot = best();
+  const longest = best(), draws = best(), priciest = best();
+  let run = 0, runId = null;
+  const safeRun = {}, perDay = {}, oneShots = {};
+  for (const r of recs) {
+    run = r.loserId === runId ? run + 1 : 1;
+    runId = r.loserId;
+    offer(loseStreak, run, name(r.loserId));
+    for (const id of r.participantIds) {
+      safeRun[id] = id === r.loserId ? 0 : (safeRun[id] || 0) + 1;
+      offer(safeStreak, safeRun[id], name(id));
+    }
+    const k = `${r.dateISO}|${r.loserId}`;
+    perDay[k] = (perDay[k] || 0) + 1;
+    offer(dayLosses, perDay[k], `${name(r.loserId)}（${day(r.dateISO)}）`);
+    const ps = (r.pitches || []).filter((p) => pitchThrowers(p).length >= 2);
+    if (ps.length === 1) {
+      oneShots[r.loserId] = (oneShots[r.loserId] || 0) + 1;
+      offer(oneShot, oneShots[r.loserId], name(r.loserId));
+    }
+    const label = `${day(r.dateISO)}（負け：${name(r.loserId)}）`;
+    offer(longest, ps.length, label);
+    offer(draws, ps.filter((p) => new Set(pitchThrowers(p).map(([, h]) => h)).size !== 2).length, label);
+    offer(priciest, -(recordAmounts(r)[r.loserId] || 0), `${name(r.loserId)}（${day(r.dateISO)}）`);
+  }
+  const rows = [
+    ["🔥", "最長連敗", loseStreak, "連敗", 2],
+    ["🛡️", "最長連続負けなし", safeStreak, "戦", 2],
+    ["⚡", "一発負け最多", oneShot, "回", 1],
+    ["😱", "1日の最多負け", dayLosses, "敗", 2],
+    ["🥊", "最長の対戦", longest, "投", 2],
+    ["🤝", "最多あいこ", draws, "回", 1],
+    ["💸", "最高額の負け", priciest, "円", 1],
+  ].filter(([, , b, , min]) => b.v >= min);
+  if (!rows.length) { el.innerHTML = '<div class="empty">まだ記録がありません</div>'; return; }
+  el.innerHTML = rows.map(([icon, title, b, unit]) => `<div class="title-row">
+      <span class="icon">${icon}</span>
+      <div class="body"><div class="t">${title}</div><div class="who">${b.who.slice(0, 3).join("、")}${b.who.length > 3 ? ` ほか${b.who.length - 3}` : ""}</div></div>
+      <span class="val">${b.v.toLocaleString()}<span class="unit">${unit}</span></span>
+    </div>`).join("");
 }
 
 function renderRecords() {
