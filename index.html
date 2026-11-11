@@ -244,17 +244,11 @@
   .trend-svg .tick{font-size:11px;fill:var(--muted);font-family:"JetBrains Mono",monospace;}
   .trend-svg .line{stroke-width:2.5;stroke-linejoin:round;stroke-linecap:round;}
   .trend-svg .name{font-size:11.5px;font-weight:700;}
-  .settle{display:flex;flex-direction:column;gap:10px;}
-  .settle-head{font-size:13.5px;font-weight:900;display:flex;justify-content:space-between;align-items:baseline;gap:8px;}
-  .settle-head span{font-size:11px;font-weight:500;color:var(--muted);}
-  .settle-row{display:flex;align-items:center;gap:10px;font-size:13.5px;flex-wrap:wrap;}
-  .settle-who{flex:1;min-width:120px;display:flex;align-items:center;gap:6px;font-weight:700;}
-  .settle-who .arrow{color:var(--muted);margin:0 2px;}
-  .settle-amt{font-family:"JetBrains Mono",monospace;font-weight:700;font-variant-numeric:tabular-nums;}
-  .settle-ok{font-size:13px;color:var(--good);font-weight:700;}
-  .settle details{font-size:12px;}
-  .settle summary{cursor:pointer;color:var(--muted);font-weight:700;margin-bottom:6px;}
-  .settle details .settle-row{color:var(--ink-soft);font-size:12.5px;margin-top:6px;}
+  table.treats th:first-child,table.treats td:first-child{width:58px;}
+  table.treats td.cell{font-size:11.5px;line-height:1.25;padding:6px 1px;}
+  table.treats .times{display:block;font-size:9.5px;font-weight:500;color:var(--ink-soft);}
+  table.treats td.total{font-weight:700;color:var(--ink-soft);}
+  table.treats tr.foot th,table.treats tr.foot td{border-top:1px solid var(--line-strong);}
   .match-cap{font-size:11.5px;color:var(--muted);padding:0 6px 6px;}
   .match-cap b{color:var(--ink);font-size:12.5px;}
   table.heat td.cell .of{font-size:10px;font-weight:500;color:var(--ink-soft);}
@@ -345,7 +339,7 @@
   <section id="sec-payments">
     <div class="sec-head"><h2>支払い金額</h2><span class="sec-note">負けた人の合計</span></div>
     <div class="standings" id="payments"></div>
-    <div id="settle" style="margin-top:10px"></div>
+    <div id="treats" style="margin-top:10px"></div>
   </section>
 
   <section id="sec-habits">
@@ -386,6 +380,6 @@
   <footer>Firebase上で動作する共有ジャンケン帳 ・ データはこの友達グループだけで共有されます</footer>
 </div>
 
-<script type="module" src="./app.js?v=29"></script>
+<script type="module" src="./app.js?v=30"></script>
 </body>
 </html>
