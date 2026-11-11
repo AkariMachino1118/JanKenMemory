@@ -3,7 +3,7 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/10.14.1/fireba
 import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
 import {
   getFirestore, doc, setDoc, updateDoc, deleteDoc, onSnapshot,
-  collection, runTransaction, serverTimestamp, arrayUnion, increment,
+  collection, runTransaction, serverTimestamp, arrayUnion, increment, waitForPendingWrites,
 } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
 
 // ---------- theme toggle ----------
@@ -71,6 +71,8 @@ const BEATS = { "グー": "チョキ", "チョキ": "パー", "パー": "グー"
 let myId = localStorage.getItem("jankenMemberId") || null;
 let viewOnly = false;
 let members = {};     // id -> data
+let membersLoaded = false;  // false until the member list has arrived from the server
+let pendingLogin = false;   // the login button was pressed before the member list arrived
 let memberOrder = []; // ids sorted by createdAt
 let records = [];     // array of {id, ...data}
 let session = null;   // current session doc data, or null
@@ -125,15 +127,17 @@ function boot() {
     });
     withDates.sort((a, b) => a[1] - b[1]);
     memberOrder = withDates.map((x) => x[0]);
+    membersLoaded = true;
     renderGate();
-    renderAll();
+    scheduleRenderAll();
+    if (pendingLogin) { pendingLogin = false; document.getElementById("btnLogin").click(); }
   });
   onSnapshot(recordsCol, (snap) => {
     records = [];
     snap.forEach((d) => records.push({ id: d.id, ...d.data() }));
     records.sort((a, b) => (a.dateISO < b.dateISO ? -1 : a.dateISO > b.dateISO ? 1
       : (a.createdAt?.toMillis?.() ?? 0) - (b.createdAt?.toMillis?.() ?? 0)));
-    renderAll();
+    scheduleRenderAll();
   });
   onSnapshot(sessionRef, (snap) => {
     session = snap.exists() ? snap.data() : null;
@@ -149,8 +153,18 @@ function boot() {
     currentSeason = snap.exists() ? (snap.data().current || 1) : 1;
     if (!seasonMetaLoaded) { selectedSeason = currentSeason; seasonMetaLoaded = true; }
     renderSeason();
-    renderAll();
+    scheduleRenderAll();
   });
+}
+
+// Several listeners often fire back to back (opening the page, or a round finishing, which
+// touches the record and every participant). Redraw once for the whole burst instead of
+// rebuilding the page each time.
+let renderQueued = false;
+function scheduleRenderAll() {
+  if (renderQueued) return;
+  renderQueued = true;
+  setTimeout(() => { renderQueued = false; renderAll(); }, 0);
 }
 
 function seasonLabel(id) {
@@ -214,6 +228,12 @@ document.getElementById("btnLogin").onclick = () => {
   const code = document.getElementById("loginCode").value.trim().toLowerCase();
   const err = document.getElementById("loginErr");
   if (!code) { err.textContent = "IDを入力してください"; return; }
+  if (!membersLoaded) {
+    // the member list is still on its way: finish the login by itself once it arrives
+    pendingLogin = true;
+    err.textContent = "データを読み込み中です。このままお待ちください…";
+    return;
+  }
   if (!members[code]) { err.textContent = "そのIDは見つかりません"; return; }
   err.textContent = "";
   myId = code;
@@ -277,7 +297,8 @@ function renderGate() {
   const gate = document.getElementById("gate");
   if (myId && members[myId]) {
     gate.style.display = "none";
-  } else if (!viewOnly) {
+  } else if (!viewOnly && (membersLoaded || !myId)) {
+    // a remembered ID keeps the gate away while the member list loads
     gate.style.display = "flex";
   }
   renderWhoami();
@@ -293,6 +314,8 @@ function renderWhoami() {
       renderGate();
       renderAll();
     };
+  } else if (myId && !membersLoaded) {
+    el.innerHTML = "<span>読み込み中…</span>";
   } else {
     el.innerHTML = `<span>閲覧のみで見ています</span><button class="switch" id="btnSwitch">ログインする</button>`;
     document.getElementById("btnSwitch").onclick = () => {
@@ -301,6 +324,8 @@ function renderWhoami() {
     };
   }
 }
+
+renderWhoami();
 
 function esc(s) {
   return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -964,19 +989,25 @@ function renderSecretStats() {
     </div>`;
 }
 
-let resolving = false;
+let resolving = false, resolveTries = 0;
 async function maybeResolve() {
   if (!session || session.status !== "collecting" || resolving) return;
   const gotAll = session.pool.every((id) => session.hands && session.hands[id]);
   if (!gotAll || session.pool.length === 0) return;
   resolving = true;
+  let settled = true;
   try {
+    // The transaction reads the server's copy, and the hand just tapped on this device may
+    // not have arrived there yet. Without waiting, the server would look one hand short, the
+    // round would not be judged, and nothing would prompt another try.
+    await waitForPendingWrites(db);
     await runTransaction(db, async (tx) => {
+      settled = true;
       const snap = await tx.get(sessionRef);
       if (!snap.exists()) return;
       const s = snap.data();
       if (s.status !== "collecting") return;
-      if (!s.pool.every((id) => s.hands && s.hands[id])) return;
+      if (!s.pool.every((id) => s.hands && s.hands[id])) { settled = false; return; }
 
       const newPitch = { hands: { ...s.hands }, result: "" };
       const withdrawnNow = s.pool.filter((id) => s.hands[id] === "不参加");
@@ -1055,10 +1086,15 @@ async function maybeResolve() {
       finalize(continuing[0]);
     });
   } catch (e) {
+    settled = false;
     console.error(e);
   } finally {
     resolving = false;
   }
+  if (settled) { resolveTries = 0; return; }
+  // not judged (server still a hand short, or the attempt failed): try again shortly, as long
+  // as this device still sees every hand in
+  if (resolveTries < 6) setTimeout(maybeResolve, Math.min(4000, 400 * 2 ** resolveTries++));
 }
 
 function computeStreakText(loserId) {

@@ -9,6 +9,7 @@
   try {
     var t = localStorage.getItem("jankenTheme");
     if (t) document.documentElement.setAttribute("data-theme", t);
+    if (localStorage.getItem("jankenMemberId")) document.documentElement.classList.add("known");
   } catch (e) {}
 })();
 </script>
@@ -102,6 +103,7 @@
 
   /* identity gate */
   #gate{position:fixed;inset:0;background:var(--ground);z-index:50;display:flex;align-items:center;justify-content:center;padding:20px;}
+  html.known #gate{display:none;}
   #gate .box{max-width:380px;width:100%;}
   #gate h1{font-weight:900;font-size:24px;margin:0 0 6px;}
   #gate p.lead{color:var(--ink-soft);font-size:13.5px;margin:0 0 20px;}
@@ -391,6 +393,6 @@
   <footer>Firebase上で動作する共有ジャンケン帳 ・ データはこの友達グループだけで共有されます</footer>
 </div>
 
-<script type="module" src="./app.js?v=32"></script>
+<script type="module" src="./app.js?v=33"></script>
 </body>
 </html>
