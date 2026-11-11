@@ -258,14 +258,48 @@ document.getElementById("btnLogin").onclick = () => {
   renderAll();
 };
 
-async function registerMember(id, name) {
+async function registerMember(id, name, extra = {}) {
   await runTransaction(db, async (tx) => {
     const existing = await tx.get(doc(membersCol, id));
     if (existing.exists()) throw new Error("id_taken");
     tx.set(doc(membersCol, id), {
-      name, active: true, points: 0, games: 0, losses: 0, createdAt: serverTimestamp(),
+      name, active: true, points: 0, games: 0, losses: 0, createdAt: serverTimestamp(), ...extra,
     });
   });
+}
+
+// ---------- guests ----------
+// A guest is a nameless seat ("ゲスト", "ゲスト2", …) that anyone can add to a round. Seats are
+// reused: a guest leaves the member list again when their round ends, and the person's real
+// name can be written on each record afterwards (see the record's edit box).
+function isGuest(id) {
+  const m = members[id];
+  return !!m && (m.guest === true || /^ゲスト\d*$/.test(m.name || ""));
+}
+
+async function addGuest() {
+  // bring back a seat nobody is using, or make a new one
+  const idle = memberOrder.find((id) => isGuest(id) && !members[id].active);
+  if (idle) {
+    await updateDoc(doc(membersCol, idle), { active: true });
+    return idle;
+  }
+  const n = memberOrder.filter(isGuest).length + 1;
+  for (let tries = 0; ; tries++) {
+    const id = String(Math.floor(100000 + Math.random() * 900000));
+    try {
+      await registerMember(id, n === 1 ? "ゲスト" : `ゲスト${n}`, { guest: true });
+      return id;
+    } catch (e) {
+      if (e.message !== "id_taken" || tries >= 3) throw e;
+    }
+  }
+}
+
+function recName(r, id) {
+  // the name to show for a participant of one record: a guest's name as written on that
+  // record, otherwise the member's name
+  return r.guestNames?.[id] || members[id]?.name || id;
 }
 
 document.getElementById("btnJoin").onclick = async () => {
@@ -289,13 +323,7 @@ document.getElementById("btnJoin").onclick = async () => {
 };
 
 document.getElementById("btnGuest").onclick = async () => {
-  let id = String(Math.floor(100000 + Math.random() * 900000));
-  try {
-    await registerMember(id, "ゲスト");
-  } catch (e) {
-    id = String(Math.floor(100000 + Math.random() * 900000));
-    await registerMember(id, "ゲスト");
-  }
+  const id = await addGuest();
   myId = id;
   localStorage.setItem("jankenMemberId", id);
   viewOnly = false;
@@ -412,6 +440,8 @@ function renderMembers() {
 }
 
 // ---------- round ----------
+const pickUnchecked = new Set();   // members unticked on the start screen
+let pickMode = "通常モード";        // mode chosen on the start screen
 function renderRound() {
   const el = document.getElementById("round");
   const note = document.getElementById("round-note");
@@ -423,23 +453,25 @@ function renderRound() {
       el.innerHTML = '<div class="status-msg">対戦を始めるにはログインしてください。</div>';
       return;
     }
-    if (activeIds.length < 2) {
-      el.innerHTML = '<div class="status-msg">対戦には2人以上のメンバーが必要です。</div>';
-      return;
-    }
+    const otokoPicked = pickMode === "男気モード";
     el.innerHTML = `
       <div class="participant-pick" id="pPick">
-        ${activeIds.map((id) => `<label class="chk"><input type="checkbox" value="${id}" checked> ${esc(members[id].name)}</label>`).join("")}
+        ${activeIds.map((id) => `<label class="chk"><input type="checkbox" value="${id}" ${pickUnchecked.has(id) ? "" : "checked"}> ${esc(members[id].name)}</label>`).join("")}
       </div>
+      <button class="btn ghost small" id="btnAddGuest" style="margin-bottom:14px">＋ ゲストを追加</button>
       <div class="mode-pick">
-        <button class="btn ghost mode-normal on" data-mode="通常モード" id="modeA">通常モード</button>
-        <button class="btn ghost mode-otoko" data-mode="男気モード" id="modeB">男気モード</button>
+        <button class="btn ghost mode-normal ${otokoPicked ? "" : "on"}" data-mode="通常モード" id="modeA">通常モード</button>
+        <button class="btn ghost mode-otoko ${otokoPicked ? "on" : ""}" data-mode="男気モード" id="modeB">男気モード</button>
       </div>
-      <div class="sec-note" id="modeNote" style="margin-bottom:14px">じゃんけんに負けた人が負けです</div>
+      <div class="sec-note" id="modeNote" style="margin-bottom:14px">${otokoPicked ? "通常と逆に、じゃんけんに勝った人が負けです" : "じゃんけんに負けた人が負けです"}</div>
       <button class="btn" id="btnStart" style="width:100%">対戦を始める</button>
       <div id="secretPreview"></div>`;
-    let mode = "通常モード";
+    let mode = pickMode;
     const modeNote = document.getElementById("modeNote");
+    document.getElementById("btnAddGuest").onclick = async (e) => {
+      e.target.disabled = true;
+      try { await addGuest(); } catch (err) { alert("ゲストの追加に失敗しました"); e.target.disabled = false; }
+    };
     // 裏機能: preview the advice for the round about to start (handy when playing in person
     // and entering hands afterwards); follows the checked participants and the chosen mode
     const updatePreview = () => {
@@ -449,17 +481,23 @@ function renderRound() {
       box.innerHTML = secretOn && picked.includes(myId) && picked.length >= 2
         ? renderSecretAdvice({ mode, pool: picked, pitches: [] }) : "";
     };
-    document.querySelectorAll('#pPick input').forEach((i) => { i.onchange = updatePreview; });
+    document.querySelectorAll('#pPick input').forEach((i) => {
+      i.onchange = () => {
+        // remembered so that a redraw (someone joining, a guest being added) keeps the choice
+        if (i.checked) pickUnchecked.delete(i.value); else pickUnchecked.add(i.value);
+        updatePreview();
+      };
+    });
     updatePreview();
     document.getElementById("modeA").onclick = () => {
-      mode = "通常モード";
+      mode = pickMode = "通常モード";
       document.getElementById("modeA").classList.add("on");
       document.getElementById("modeB").classList.remove("on");
       modeNote.textContent = "じゃんけんに負けた人が負けです";
       updatePreview();
     };
     document.getElementById("modeB").onclick = () => {
-      mode = "男気モード";
+      mode = pickMode = "男気モード";
       document.getElementById("modeB").classList.add("on");
       document.getElementById("modeA").classList.remove("on");
       modeNote.textContent = "通常と逆に、じゃんけんに勝った人が負けです";
@@ -1088,6 +1126,9 @@ async function maybeResolve() {
             losses: increment(id === loserId ? 1 : 0),
           });
         }
+        for (const id of s.participantIds) {
+          if (isGuest(id)) tx.update(doc(membersCol, id), { active: false });
+        }
         tx.delete(sessionRef);
       };
 
@@ -1662,14 +1703,14 @@ function renderRecords() {
       const h = (r.hands[id] || "").replace("(勝)", "");
       const amt = amts[id];
       return `<div class="hand-chip ${isLose ? "lose" : ""}">
-        <span class="who"><span class="dot" style="width:6px;height:6px;background:${colorVar(id)}"></span>${esc(members[id]?.name ?? id)}</span>
+        <span class="who"><span class="dot" style="width:6px;height:6px;background:${colorVar(id)}"></span>${esc(recName(r, id))}</span>
         <span class="hand">${h}</span>
         <span class="tag">${isLose ? "敗" : ""}</span>
         ${amt ? `<span class="tag" style="color:${amt > 0 ? "var(--good)" : "var(--bad)"}">${amt > 0 ? "+" : ""}${amt.toLocaleString()}円</span>` : ""}
       </div>`;
     }).join("");
     const pitches = (r.pitches || []).map((p) => {
-      const hs = Object.entries(p.hands).map(([id, h]) => `${(members[id]?.name ?? id)[0]}:${h.replace("(勝)", "")}`).join(" ");
+      const hs = Object.entries(p.hands).map(([id, h]) => `${esc(recName(r, id)[0])}:${h.replace("(勝)", "")}`).join(" ");
       const cls = p.result === "最終決着" ? "decide" : p.result === "勝ち抜け発生" ? "advance" : "draw";
       return `<div class="pitch"><span class="hs">${hs}</span><span class="res ${cls}">${p.result}</span></div>`;
     }).join("");
@@ -1681,15 +1722,23 @@ function renderRecords() {
         <button class="btn ghost small mode-otoko ${r.mode === "男気モード" ? "on" : ""}" data-editmode="男気モード" data-rid="${r.id}">男気モード</button>
       </div>
       <select class="field" id="editLoser-${r.id}">
-        ${r.participantIds.map((id) => `<option value="${id}" ${id === r.loserId ? "selected" : ""}>${esc(members[id]?.name ?? id)}</option>`).join("")}
+        ${r.participantIds.map((id) => `<option value="${id}" ${id === r.loserId ? "selected" : ""}>${esc(recName(r, id))}</option>`).join("")}
       </select>
+      ${r.participantIds.some(isGuest) ? `<div class="sec-note" style="margin-top:10px">ゲストの名前（この対戦の記録にだけ表示されます）</div>
+        ${r.participantIds.filter(isGuest).map((id) => `
+        <div style="display:flex;align-items:center;gap:8px;margin-top:6px">
+          <span style="flex:0 0 76px;font-size:12.5px;display:flex;align-items:center;gap:5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+            <span class="dot" style="background:${colorVar(id)}"></span>${esc(members[id]?.name ?? id)}
+          </span>
+          <input type="text" class="field" id="editGuest-${r.id}-${id}" maxlength="12" placeholder="名前（例：田中）" value="${esc(r.guestNames?.[id] || "")}">
+        </div>`).join("")}` : ""}
       <div class="sec-note" style="margin-top:10px">メモ（ひとこと）</div>
       <input type="text" class="field" id="editMemo-${r.id}" maxlength="40" placeholder="例：コンビニでアイス" value="${esc(r.memo || "")}" style="margin-top:6px">
       <div class="sec-note" style="margin-top:10px">金額（勝った人の金額を入力すると、負けた人はその合計を支払います）</div>
       ${r.participantIds.map((id) => `
         <div style="display:flex;align-items:center;gap:8px;margin-top:6px">
           <span style="flex:0 0 76px;font-size:12.5px;display:flex;align-items:center;gap:5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
-            <span class="dot" style="background:${colorVar(id)}"></span>${esc(members[id]?.name ?? id)}
+            <span class="dot" style="background:${colorVar(id)}"></span>${esc(recName(r, id))}
           </span>
           <input type="number" inputmode="numeric" min="0" step="1" class="field" id="editAmt-${r.id}-${id}" data-amtrid="${r.id}" placeholder="0" value="${(r.amounts && id !== r.loserId && r.amounts[id]) || ""}">
         </div>`).join("")}
@@ -1788,7 +1837,12 @@ function renderRecords() {
         if (kept) amounts[loserId] = kept;
       }
       const memo = document.getElementById("editMemo-" + rid).value.trim().slice(0, 40);
-      await updateDoc(doc(recordsCol, rid), { dateISO, mode, loserId, amounts, memo, streakText: null });
+      const guestNames = {};
+      (rec ? rec.participantIds : []).forEach((id) => {
+        const v = document.getElementById(`editGuest-${rid}-${id}`)?.value.trim().slice(0, 12);
+        if (v) guestNames[id] = v;
+      });
+      await updateDoc(doc(recordsCol, rid), { dateISO, mode, loserId, amounts, memo, guestNames, streakText: null });
       document.getElementById("edit-" + rid).style.display = "none";
     };
   });
