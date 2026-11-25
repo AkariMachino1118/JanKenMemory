@@ -289,6 +289,11 @@
   .ach-link{font-size:12.5px;font-weight:700;color:var(--accent-strong);text-decoration:underline;text-underline-offset:3px;white-space:nowrap;padding:4px 0 4px 8px;}
   .ach-title{font-weight:900;font-size:clamp(24px,6.5vw,30px);margin:0 0 12px;letter-spacing:.01em;}
   .ach-group{font-size:12px;font-weight:700;color:var(--muted);letter-spacing:.08em;margin:22px 2px 8px;}
+  .ach-grid{display:flex;flex-wrap:wrap;gap:8px;padding:12px;}
+  .ach-tile{width:48px;height:48px;border-radius:12px;border:1px solid var(--line);background:var(--surface-2);font-size:24px;line-height:1;cursor:pointer;padding:0;display:flex;align-items:center;justify-content:center;font-family:inherit;-webkit-tap-highlight-color:transparent;}
+  .ach-tile.locked{filter:grayscale(1);opacity:.38;}
+  .ach-tile.on{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent);opacity:1;}
+  .ach-grid + .ach-row{border-top:1px solid var(--line);}
   .ach-row{display:flex;gap:12px;padding:13px 16px;border-top:1px solid var(--line);}
   .ach-row:first-child{border-top:none;}
   .ach-row .icon{font-size:22px;width:28px;text-align:center;flex:none;}
@@ -443,6 +448,6 @@
   <div id="achievements" style="margin-top:22px"><div class="empty">読み込み中…</div></div>
 </div>
 
-<script type="module" src="./app.js?v=49"></script>
+<script type="module" src="./app.js?v=51"></script>
 </body>
 </html>
