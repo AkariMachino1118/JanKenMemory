@@ -2034,6 +2034,7 @@ const ACHS = [
   ]],
   ["お金", [
     ["pay1000", "💸", "太っ腹", "1回の負けで1,000円以上おごる", true],
+    ["pay2000", "🎁", "気前よし", "1回の負けで2,000円以上おごる", true],
     ["pay3000", "🍾", "豪遊", "1回の負けで3,000円以上おごる", true],
     ["pay5000", "🛢️", "石油王", "1回の負けで5,000円以上おごる", true],
     ["paid5000", "🏦", "スポンサー", "おごった合計が5,000円に届く"],
@@ -2110,7 +2111,7 @@ function computeAchievements() {
       const amt = amts[id] || 0;
       if (amt < 0) {
         s.paid -= amt;
-        [1000, 3000, 5000].forEach((v) => { if (-amt >= v) award("pay" + v, id, date); });
+        [1000, 2000, 3000, 5000].forEach((v) => { if (-amt >= v) award("pay" + v, id, date); });
         [5000, 10000, 30000, 50000].forEach((v) => once("paid" + v, id, date, s.paid >= v));
       } else if (amt > 0) {
         s.received += amt;
