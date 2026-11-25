@@ -1307,6 +1307,7 @@ function renderAll() {
   renderMatchups();
   renderTitles();
   renderRecords();
+  renderAchievements();
 }
 
 function renderStandings() {
@@ -1979,3 +1980,185 @@ document.getElementById("btnBackup").onclick = () => {
   setTimeout(() => URL.revokeObjectURL(a.href), 10000);
   note.textContent = `バックアップを保存しました（メンバー${Object.keys(members).length}人・対戦${records.length}件）`;
 };
+
+// ---------- 実績 ----------
+// Achievements are worked out from the records of every season (not stored separately), so
+// they follow any later correction of a record. Guests earn none. `repeat` ones can be earned
+// again and again and show how many times; the others are reached once.
+const ACHS = [
+  ["参加", [
+    ["g1", "🎉", "初陣", "はじめて対戦に参加する"],
+    ["g10", "🎮", "常連", "通算10戦に参加する"],
+    ["g50", "🎖️", "ベテラン", "通算50戦に参加する"],
+    ["g100", "🏛️", "鉄人", "通算100戦に参加する"],
+  ]],
+  ["勝負強さ", [
+    ["safe5", "🛡️", "鉄壁", "5戦連続で負けなし（参加した対戦で数えます）", true],
+    ["safe10", "🏰", "難攻不落", "10戦連続で負けなし", true],
+    ["safe15", "👑", "無敵", "15戦連続で負けなし", true],
+    ["first-out", "🚀", "一抜け", "3人以上の対戦で、1投目に自分だけ抜ける", true],
+    ["escape", "😮‍💨", "土壇場の生還", "3人以上の対戦で、先に抜けた人がいる中、最後の決着まで残って負けを免れる", true],
+    ["plus10", "💰", "貯金王", "通算の貯金が+10ptに届く"],
+  ]],
+  ["負けの記録", [
+    ["l1", "🌱", "初黒星", "はじめて負ける"],
+    ["l10", "🍩", "おごり役", "通算10敗"],
+    ["l25", "🍱", "大盤振る舞い", "通算25敗"],
+    ["lose3", "🌧️", "泥沼", "3連敗する（参加した対戦で数えます）", true],
+    ["lose5", "⛈️", "底なし沼", "5連敗する", true],
+    ["oneshot", "⚡", "瞬殺", "3人以上の対戦で、1投で負けが決まる", true],
+    ["day2", "😱", "厄日", "同じ日に2回負ける", true],
+    ["minus10", "🕳️", "借金王", "通算の借金が−10ptに届く"],
+  ]],
+  ["名勝負", [
+    ["long5", "🥊", "死闘", "5投以上もつれた対戦で負ける", true],
+    ["draw3", "🤝", "あいこ地獄", "あいこが3回以上出た対戦に参加する", true],
+    ["all3", "🎨", "三種の神器", "1つの対戦でグー・チョキ・パーを全部出す", true],
+    ["same4", "🗿", "頑固一徹", "1つの対戦で同じ手を4回続けて出す", true],
+  ]],
+  ["男気", [
+    ["otoko1", "🔥", "男気", "男気モードではじめて負ける（じゃんけんに勝ち抜く）"],
+    ["otoko5", "🦁", "男の中の男", "男気モードで通算5敗"],
+  ]],
+  ["お金", [
+    ["pay1000", "💸", "太っ腹", "1回の負けで1,000円以上おごる", true],
+    ["paid5000", "🏦", "スポンサー", "おごった合計が5,000円に届く"],
+    ["got3000", "🍰", "ごちそうさま", "おごってもらった合計が3,000円に届く"],
+  ]],
+];
+const ACH_LIST = ACHS.flatMap(([, list]) => list);
+
+function computeAchievements() {
+  const got = {};   // achievement key -> {memberId: {date, n}}, in the order they were earned
+  const award = (key, id, date) => {
+    if (isGuest(id) || !members[id]) return;
+    const e = ((got[key] ||= {})[id] ||= { date, n: 0 });
+    e.n++;
+  };
+  const once = (key, id, date, cond) => { if (cond && !got[key]?.[id]) award(key, id, date); };
+  const st = {};
+  const dayLoss = {};
+  for (const r of records) {
+    if (!r.loserId || !r.participantIds) continue;
+    const date = r.dateISO;
+    const n = r.participantIds.length;
+    const ps = (r.pitches || []).filter((p) => pitchThrowers(p).length >= 2);
+    const amts = recordAmounts(r);
+    const draws = ps.filter((p) => new Set(pitchThrowers(p).map(([, h]) => h)).size !== 2).length;
+    for (const id of r.participantIds) {
+      const s = (st[id] ||= { games: 0, losses: 0, safeRun: 0, loseRun: 0, points: 0, paid: 0, received: 0, otoko: 0 });
+      const lost = id === r.loserId;
+      s.games++;
+      if ([1, 10, 50, 100].includes(s.games)) award("g" + s.games, id, date);
+      if (lost) {
+        s.losses++; s.loseRun++; s.safeRun = 0; s.points -= n - 1;
+        if ([1, 10, 25].includes(s.losses)) award("l" + s.losses, id, date);
+        if (s.loseRun === 3 || s.loseRun === 5) award("lose" + s.loseRun, id, date);
+        if (ps.length === 1 && n >= 3) award("oneshot", id, date);
+        if (ps.length >= 5) award("long5", id, date);
+        if (r.mode === "男気モード") {
+          s.otoko++;
+          if (s.otoko === 1 || s.otoko === 5) award("otoko" + s.otoko, id, date);
+        }
+        const k = `${date}|${id}`;
+        dayLoss[k] = (dayLoss[k] || 0) + 1;
+        if (dayLoss[k] === 2) award("day2", id, date);
+      } else {
+        s.safeRun++; s.loseRun = 0; s.points += 1;
+        if ([5, 10, 15].includes(s.safeRun)) award("safe" + s.safeRun, id, date);
+        // went into the final face-off (someone had already got out) and wasn't the one who lost it
+        const last = ps[ps.length - 1];
+        if (n >= 3 && last && pitchThrowers(last).length < n && realHand(last.hands?.[id])) award("escape", id, date);
+      }
+      once("plus10", id, date, s.points >= 10);
+      once("minus10", id, date, s.points <= -10);
+      const thrown = (r.pitches || []).map((p) => realHand(p.hands?.[id])).filter(Boolean);
+      if (new Set(thrown).size === 3) award("all3", id, date);
+      let run = 0, maxRun = 0;
+      thrown.forEach((h, i) => { run = i && h === thrown[i - 1] ? run + 1 : 1; maxRun = Math.max(maxRun, run); });
+      if (maxRun >= 4) award("same4", id, date);
+      if (draws >= 3 && thrown.length) award("draw3", id, date);
+      const amt = amts[id] || 0;
+      if (amt < 0) {
+        s.paid -= amt;
+        if (-amt >= 1000) award("pay1000", id, date);
+        once("paid5000", id, date, s.paid >= 5000);
+      } else if (amt > 0) {
+        s.received += amt;
+        once("got3000", id, date, s.received >= 3000);
+      }
+    }
+    // 一抜け: the first pitch splits three or more throwers and exactly one of them gets out
+    const first = ps[0] && pitchThrowers(ps[0]).filter(([id]) => r.participantIds.includes(id));
+    if (first && first.length >= 3) {
+      const types = new Set(first.map(([, h]) => h));
+      if (types.size === 2) {
+        const [t1, t2] = [...types];
+        const winType = BEATS[t1] === t2 ? t1 : t2;
+        const stayType = r.mode === "男気モード" ? winType : (winType === t1 ? t2 : t1);
+        const gone = first.filter(([, h]) => h !== stayType);
+        if (gone.length === 1) award("first-out", gone[0][0], date);
+      }
+    }
+  }
+  return got;
+}
+
+let achFocus = "all";      // "all" or the member whose achievements are shown
+let achKnown = null;       // what had been earned at the last look, to announce new ones
+function achOpen() { return location.hash === "#achievements"; }
+function showPage() {
+  const on = achOpen();
+  document.getElementById("achPage").style.display = on ? "" : "none";
+  document.getElementById("mainPage").style.display = on ? "none" : "";
+  if (on) { renderAchievements(); window.scrollTo(0, 0); }
+}
+window.addEventListener("hashchange", showPage);
+document.getElementById("btnAch").onclick = () => { location.hash = "#achievements"; showPage(); };
+document.getElementById("btnAchBack").onclick = () => { location.hash = ""; showPage(); };
+showPage();
+
+function renderAchievements() {
+  if (!membersLoaded || !recordsLoaded) return;
+  const got = computeAchievements();
+  // announce what was newly earned since the last look (not on the first load)
+  const now = new Set(Object.entries(got).flatMap(([key, who]) => Object.keys(who).map((id) => `${key}|${id}`)));
+  if (achKnown) {
+    const fresh = [...now].filter((k) => !achKnown.has(k)).slice(0, 3);
+    fresh.forEach((k, i) => {
+      const [key, id] = k.split("|");
+      const a = ACH_LIST.find((x) => x[0] === key);
+      setTimeout(() => showToast(`🏆 ${members[id]?.name ?? id}さんが「${a[2]}」を達成`), i * 1700);
+    });
+  }
+  achKnown = now;
+  const people = memberOrder.filter((id) => members[id] && !isGuest(id));
+  const count = (id) => ACH_LIST.filter(([key]) => got[key]?.[id]).length;
+  const btn = document.getElementById("btnAch");
+  btn.textContent = myId && members[myId] && !isGuest(myId) ? `🏆 実績 ${count(myId)}/${ACH_LIST.length}` : "🏆 実績";
+  if (!achOpen()) return;
+  const el = document.getElementById("achievements");
+  if (achFocus !== "all" && !people.includes(achFocus)) achFocus = "all";
+  const day = (iso) => `${Number(iso.slice(0, 4))}/${Number(iso.slice(5, 7))}/${Number(iso.slice(8, 10))}`;
+  const chips = [["all", "全員"], ...people.map((id) => [id, `${members[id].name} ${count(id)}/${ACH_LIST.length}`])]
+    .map(([val, label]) => `<button class="btn ghost small ${val === achFocus ? "on" : ""}" data-ach="${val}">${esc(label)}</button>`).join("");
+  const groups = ACHS.map(([group, list]) => {
+    const rows = list.map(([key, icon, name, desc, repeat]) => {
+      const who = got[key] || {};
+      const ids = Object.keys(who).filter((id) => achFocus === "all" || id === achFocus)
+        .sort((a, b) => (who[a].date < who[b].date ? -1 : who[a].date > who[b].date ? 1 : 0));
+      const names = ids.map((id) => `<span class="ach-name"><span class="dot" style="background:${colorVar(id)}"></span>${esc(members[id].name)}<span class="when">${day(who[id].date)}${repeat && who[id].n > 1 ? `（初回）・計${who[id].n}回` : ""}</span></span>`).join("");
+      return `<div class="ach-row ${ids.length ? "" : "locked"}">
+        <span class="icon">${icon}</span>
+        <div class="body"><div class="t">${name}${repeat ? '<span class="rep">何度でも</span>' : ""}</div><div class="d">${desc}</div>
+          <div class="ach-names">${names || `<span class="none">${achFocus === "all" ? "まだ誰も達成していません" : "未達成"}</span>`}</div></div>
+      </div>`;
+    }).join("");
+    return `<div class="ach-group">${group}</div><div class="card">${rows}</div>`;
+  }).join("");
+  el.innerHTML = `<div class="sec-note" style="white-space:normal;margin:0 0 10px">達成すると、その実績に名前と達成日が記録されます。全シーズンの対戦記録から数えます（ゲストは対象外）。名前を選ぶと、その人の達成状況だけを見られます。</div>
+    <div class="matchup-chips">${chips}</div>${groups}`;
+  el.querySelectorAll("[data-ach]").forEach((b) => {
+    b.onclick = () => { achFocus = b.dataset.ach; renderAchievements(); };
+  });
+}
