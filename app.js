@@ -80,8 +80,10 @@ let viewOnly = false;
 let members = {};     // id -> data
 let membersLoaded = false;  // false until the member list has arrived from the server
 let pendingLogin = false;   // the login button was pressed before the member list arrived
+let justJoined = false;     // just registered: the gate stays up, showing the new ID, until dismissed
 let memberOrder = []; // ids sorted by createdAt
 let records = [];     // array of {id, ...data}
+let recordsLoaded = false;
 let session = null;   // current session doc data, or null
 let seasons = {};        // id(string) -> {label, startedAt}
 let currentSeason = 1;   // the season new rounds are recorded into
@@ -144,6 +146,7 @@ function boot() {
   });
   onSnapshot(recordsCol, (snap) => {
     records = [];
+    recordsLoaded = true;
     snap.forEach((d) => records.push({ id: d.id, ...d.data() }));
     records.sort((a, b) => (a.dateISO < b.dateISO ? -1 : a.dateISO > b.dateISO ? 1
       : (a.createdAt?.toMillis?.() ?? 0) - (b.createdAt?.toMillis?.() ?? 0)));
@@ -327,8 +330,20 @@ document.getElementById("btnJoin").onclick = async () => {
   myId = id;
   localStorage.setItem("jankenMemberId", id);
   viewOnly = false;
+  justJoined = true;
+  document.getElementById("btnJoin").style.display = "none";
   document.getElementById("codeReveal").style.display = "block";
   document.getElementById("codeRevealVal").textContent = id;
+};
+
+document.getElementById("btnJoinDone").onclick = () => {
+  justJoined = false;
+  document.getElementById("codeReveal").style.display = "none";
+  document.getElementById("btnJoin").style.display = "";
+  document.getElementById("joinName").value = "";
+  document.getElementById("joinId").value = "";
+  renderGate();
+  renderAll();
 };
 
 document.getElementById("btnGuest").onclick = async () => {
@@ -354,7 +369,9 @@ document.getElementById("btnViewOnly").onclick = () => {
 
 function renderGate() {
   const gate = document.getElementById("gate");
-  if (myId && members[myId]) {
+  if (justJoined) {
+    gate.style.display = "flex";
+  } else if (myId && members[myId]) {
     gate.style.display = "none";
   } else if (!viewOnly && (membersLoaded || !myId)) {
     // a remembered ID keeps the gate away while the member list loads
@@ -390,9 +407,34 @@ function esc(s) {
   return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
+// The page is redrawn whenever anyone's change arrives. This carries what is being typed (and
+// where the cursor is) across such a redraw, for the fields that still exist afterwards.
+function keepTyped(el, boxes) {
+  const vals = {};
+  (boxes || [el]).forEach((box) => box.querySelectorAll("input[id], select[id]").forEach((i) => { vals[i.id] = i.value; }));
+  const act = document.activeElement;
+  const focusId = act && act.id && el.contains(act) ? act.id : null;
+  let sel = null;
+  try { if (focusId && act.selectionStart != null) sel = [act.selectionStart, act.selectionEnd]; } catch (e) {}
+  return {
+    restore() {
+      for (const [id, v] of Object.entries(vals)) {
+        const i = document.getElementById(id);
+        if (i) i.value = v;
+      }
+      const f = focusId && document.getElementById(focusId);
+      if (f) {
+        f.focus({ preventScroll: true });
+        try { if (sel) f.setSelectionRange(sel[0], sel[1]); } catch (e) {}
+      }
+    },
+  };
+}
+
 // ---------- members section ----------
 function renderMembers() {
   const el = document.getElementById("members");
+  const typed = keepTyped(el);
   let html = "";
   // guests are listed only while they are in use (added for a round); the named members stay
   const shown = memberOrder.filter((id) => !isGuest(id) || members[id].active);
@@ -424,6 +466,7 @@ function renderMembers() {
     <button class="btn" id="btnAddMember">追加</button>
   </div>`;
   el.innerHTML = html;
+  typed.restore();
   const colorBtn = document.getElementById("btnColor");
   if (colorBtn) colorBtn.onclick = () => { colorPickerOpen = !colorPickerOpen; renderMembers(); };
   el.querySelectorAll("[data-color]").forEach((b) => {
@@ -1721,11 +1764,22 @@ function renderTitles() {
     </div>`).join("");
 }
 
+const openEdits = new Set();     // records whose edit box is open
+const openDetails = new Set();   // records whose pitch details are unfolded
 function renderRecords() {
   const recs = visibleRecords();
   document.getElementById("rec-count").textContent = recs.length ? `全${recs.length}戦` : "";
   const el = document.getElementById("records");
   if (!recs.length) { el.innerHTML = `<div class="empty">${esc(seasonLabel(selectedSeason))}の対戦記録がまだありません。</div>`; return; }
+  // an edit in progress is carried over the redraw: what was typed, and the mode picked
+  [...openEdits].forEach((rid) => { if (!myId || !recs.some((r) => r.id === rid)) openEdits.delete(rid); });
+  const editing = [...openEdits].map((rid) => document.getElementById("edit-" + rid)).filter(Boolean);
+  const typed = keepTyped(el, editing);
+  const pickedMode = {};
+  editing.forEach((box) => {
+    const on = box.querySelector("[data-editmode].on");
+    if (on) pickedMode[on.dataset.rid] = on.dataset.editmode;
+  });
   const weekdayJ = ["日", "月", "火", "水", "木", "金", "土"];
   el.innerHTML = recs.slice().reverse().map((r) => {
     const d = new Date(r.dateISO + "T00:00:00");
@@ -1749,7 +1803,7 @@ function renderRecords() {
       return `<div class="pitch"><span class="hs">${hs}</span><span class="res ${cls}">${p.result}</span></div>`;
     }).join("");
     const editBtn = myId ? `<button class="btn ghost small" data-toggleedit="${r.id}">編集</button>` : "";
-    const editBox = myId ? `<div class="rec-edit" id="edit-${r.id}" style="display:none">
+    const editBox = myId ? `<div class="rec-edit" id="edit-${r.id}" style="display:${openEdits.has(r.id) ? "block" : "none"}">
       <input type="date" class="field" id="editDate-${r.id}" value="${r.dateISO}">
       <div class="mode-pick" style="margin:10px 0">
         <button class="btn ghost small mode-normal ${r.mode === "通常モード" ? "on" : ""}" data-editmode="通常モード" data-rid="${r.id}">通常モード</button>
@@ -1793,7 +1847,7 @@ function renderRecords() {
       <div class="rec-hands">${hands}</div>
       ${r.memo ? `<div class="memo">📝 ${esc(r.memo)}</div>` : ""}
       ${r.streakText ? `<div class="streak">🔥 ${esc(r.streakText)}</div>` : ""}
-      ${pitches ? `<details><summary>投球の詳細（${(r.pitches || []).length}球）</summary><div class="pitch-list">${pitches}</div></details>` : ""}
+      ${pitches ? `<details data-details="${r.id}" ${openDetails.has(r.id) ? "open" : ""}><summary>投球の詳細（${(r.pitches || []).length}球）</summary><div class="pitch-list">${pitches}</div></details>` : ""}
       ${editBox}
     </div>`;
   }).join("");
@@ -1816,11 +1870,20 @@ function renderRecords() {
       loserInput.value = legacyLoserAmount(rec) || "";
     }
   };
+  typed.restore();
+  for (const [rid, mode] of Object.entries(pickedMode)) {
+    el.querySelectorAll(`[data-editmode][data-rid="${rid}"]`).forEach((x) => x.classList.toggle("on", x.dataset.editmode === mode));
+  }
+  openEdits.forEach((rid) => syncLoserAmount(rid));
+  el.querySelectorAll("[data-details]").forEach((d) => {
+    d.ontoggle = () => { if (d.open) openDetails.add(d.dataset.details); else openDetails.delete(d.dataset.details); };
+  });
   el.querySelectorAll("[data-toggleedit]").forEach((b) => {
     b.onclick = () => {
-      const box = document.getElementById("edit-" + b.dataset.toggleedit);
-      box.style.display = box.style.display === "none" ? "block" : "none";
-      syncLoserAmount(b.dataset.toggleedit);
+      const rid = b.dataset.toggleedit;
+      if (openEdits.has(rid)) openEdits.delete(rid); else openEdits.add(rid);
+      document.getElementById("edit-" + rid).style.display = openEdits.has(rid) ? "block" : "none";
+      syncLoserAmount(rid);
     };
   });
   el.querySelectorAll("[data-amtrid]").forEach((input) => {
@@ -1842,7 +1905,7 @@ function renderRecords() {
     };
   });
   el.querySelectorAll("[data-canceledit]").forEach((b) => {
-    b.onclick = () => { document.getElementById("edit-" + b.dataset.canceledit).style.display = "none"; };
+    b.onclick = () => { openEdits.delete(b.dataset.canceledit); renderRecords(); };
   });
   el.querySelectorAll("[data-delete]").forEach((b) => {
     b.onclick = async () => {
@@ -1879,7 +1942,40 @@ function renderRecords() {
       // the 連敗 note only goes stale when the loser or the date changes
       const streakText = rec && rec.loserId === loserId && rec.dateISO === dateISO ? (rec.streakText ?? null) : null;
       await updateDoc(doc(recordsCol, rid), { dateISO, mode, loserId, amounts, memo, guestNames, streakText });
-      document.getElementById("edit-" + rid).style.display = "none";
+      openEdits.delete(rid);
+      const box = document.getElementById("edit-" + rid);
+      if (box) box.style.display = "none";
     };
   });
 }
+
+// ---------- backup ----------
+// Saves everything the app keeps (members, records, seasons) as one JSON file on this device.
+function plainForBackup(v) {
+  if (v && typeof v.toDate === "function") return v.toDate().toISOString();
+  if (v && typeof v.toMillis === "function") return new Date(v.toMillis()).toISOString();
+  if (Array.isArray(v)) return v.map(plainForBackup);
+  if (v && typeof v === "object") return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, plainForBackup(x)]));
+  return v;
+}
+document.getElementById("btnBackup").onclick = () => {
+  const note = document.getElementById("backupNote");
+  if (!membersLoaded || !recordsLoaded) { note.textContent = "データを読み込み中です。少し待ってからもう一度押してください。"; return; }
+  const now = new Date();
+  const two = (n) => String(n).padStart(2, "0");
+  const stamp = `${now.getFullYear()}${two(now.getMonth() + 1)}${two(now.getDate())}-${two(now.getHours())}${two(now.getMinutes())}`;
+  const data = plainForBackup({
+    app: "janken-memory", version: 1, exportedAt: now.toISOString(),
+    currentSeason, seasons, members,
+    records: records.map(({ id, ...rest }) => ({ id, ...rest })),
+    session,
+  });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }));
+  a.download = `janken-backup-${stamp}.json`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+  note.textContent = `バックアップを保存しました（メンバー${Object.keys(members).length}人・対戦${records.length}件）`;
+};

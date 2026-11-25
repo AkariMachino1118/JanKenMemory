@@ -315,6 +315,7 @@
         <div class="note">登録できました。あなたのIDです</div>
         <div class="code" id="codeRevealVal"></div>
         <div class="note">次回からこのIDでログインできます</div>
+        <button id="btnJoinDone" class="btn" style="width:100%;margin-top:12px">はじめる</button>
       </div>
     </div>
     <div class="viewonly">
@@ -405,9 +406,18 @@
     <div class="records" id="records"></div>
   </section>
 
+  <section id="sec-backup">
+    <div class="sec-head"><h2>バックアップ</h2><span class="sec-note">全データをファイルに保存</span></div>
+    <div class="card pad">
+      <div class="sec-note" style="white-space:normal;margin-bottom:10px">メンバー・対戦記録・シーズンのすべてを、1つのファイル（JSON）としてこの端末に保存します。</div>
+      <button class="btn ghost small" id="btnBackup" type="button">バックアップを保存する</button>
+      <div class="sec-note" id="backupNote" style="white-space:normal;margin-top:8px"></div>
+    </div>
+  </section>
+
   <footer>Firebase上で動作する共有ジャンケン帳 ・ データはこの友達グループだけで共有されます</footer>
 </div>
 
-<script type="module" src="./app.js?v=45"></script>
+<script type="module" src="./app.js?v=46"></script>
 </body>
 </html>
