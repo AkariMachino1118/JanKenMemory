@@ -3,7 +3,7 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/10.14.1/fireba
 import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
 import {
   getFirestore, doc, setDoc, updateDoc, deleteDoc, onSnapshot,
-  collection, runTransaction, serverTimestamp, arrayUnion, increment, waitForPendingWrites,
+  collection, runTransaction, serverTimestamp, increment, waitForPendingWrites,
 } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
 
 // ---------- theme toggle ----------
@@ -123,7 +123,10 @@ signInAnonymously(auth).catch((e) => {
   console.error(e);
 });
 
+let booted = false;
 function boot() {
+  if (booted) return;   // the auth state can be reported more than once
+  booted = true;
   trySeed();
   onSnapshot(membersCol, (snap) => {
     members = {};
@@ -157,8 +160,12 @@ function boot() {
     renderSeason();
   });
   onSnapshot(seasonMetaRef, (snap) => {
+    const before = currentSeason;
     currentSeason = snap.exists() ? (snap.data().current || 1) : 1;
-    if (!seasonMetaLoaded) { selectedSeason = currentSeason; seasonMetaLoaded = true; }
+    // someone watching the current season moves on with it when a new one starts (on any
+    // device); someone looking back at an older season stays where they are
+    if (!seasonMetaLoaded || selectedSeason === before) selectedSeason = currentSeason;
+    seasonMetaLoaded = true;
     renderSeason();
     scheduleRenderAll();
   });
@@ -335,7 +342,14 @@ document.getElementById("btnGuest").onclick = async () => {
 
 document.getElementById("btnViewOnly").onclick = () => {
   viewOnly = true;
+  if (membersLoaded && myId && !members[myId]) {
+    // a remembered ID that no longer matches anyone must not count as logged in
+    myId = null;
+    localStorage.removeItem("jankenMemberId");
+    renderAll();
+  }
   document.getElementById("gate").style.display = "none";
+  renderWhoami();
 };
 
 function renderGate() {
@@ -561,7 +575,7 @@ function renderRound() {
 
   const logHtml = session.pitches && session.pitches.length
     ? `<div class="pitch-log">${session.pitches.map((p) =>
-        `<div>${Object.entries(p.hands).map(([id, h]) => `${(members[id]?.name ?? id)[0]}:${h}`).join(" ")} <span class="res">→ ${p.result}</span></div>`
+        `<div>${Object.entries(p.hands).map(([id, h]) => `${esc((members[id]?.name ?? id)[0])}:${esc(h)}`).join(" ")} <span class="res">→ ${p.result}</span></div>`
       ).join("")}</div>` : "";
 
   const secretHtml = secretOn && inPool
@@ -1100,7 +1114,9 @@ async function maybeResolve() {
       if (s.status !== "collecting") return;
       if (!s.pool.every((id) => s.hands && s.hands[id])) { settled = false; return; }
 
-      const newPitch = { hands: { ...s.hands }, result: "" };
+      // only the hands of those still in the pool: a late tap from a device showing the
+      // previous pitch can leave a hand behind for someone who is already out
+      const newPitch = { hands: Object.fromEntries(s.pool.map((id) => [id, s.hands[id]])), result: "" };
       const withdrawnNow = s.pool.filter((id) => s.hands[id] === "不参加");
       const throwers = s.pool.filter((id) => s.hands[id] !== "不参加");
       const withdrawnAll = [...(s.withdrawn || []), ...withdrawnNow];
@@ -1118,7 +1134,7 @@ async function maybeResolve() {
         const streakText = computeStreakText(loserId);
         const newRecRef = doc(recordsCol);
         tx.set(newRecRef, {
-          dateISO: new Date().toISOString().slice(0, 10),
+          dateISO: todayISO(),
           mode: s.mode, participantIds, hands: finalHands,
           loserId, streakText, pitches: allPitches, createdAt: serverTimestamp(),
           seasonId: currentSeason,
@@ -1154,7 +1170,7 @@ async function maybeResolve() {
         newPitch.result = "あいこ";
         tx.update(sessionRef, {
           pool: throwers, hands: {}, pitchIndex: s.pitchIndex + 1,
-          pitches: arrayUnion(newPitch), withdrawn: withdrawnAll,
+          pitches: [...(s.pitches || []), newPitch], withdrawn: withdrawnAll,
         });
         return;
       }
@@ -1171,7 +1187,7 @@ async function maybeResolve() {
         newPitch.result = "勝ち抜け発生";
         tx.update(sessionRef, {
           pool: continuing, hands: {}, pitchIndex: s.pitchIndex + 1,
-          pitches: arrayUnion(newPitch), withdrawn: withdrawnAll,
+          pitches: [...(s.pitches || []), newPitch], withdrawn: withdrawnAll,
         });
         return;
       }
@@ -1191,10 +1207,19 @@ async function maybeResolve() {
   if (resolveTries < 6) setTimeout(maybeResolve, Math.min(4000, 400 * 2 ** resolveTries++));
 }
 
+function todayISO() {
+  // today's date on this device (toISOString would give the UTC date, which is still
+  // "yesterday" in Japan until 9 in the morning)
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
 function computeStreakText(loserId) {
   const seasonRecords = records.filter((r) => (r.seasonId || 1) === currentSeason);
   let streak = 1;
   for (let i = seasonRecords.length - 1; i >= 0; i--) {
+    // rounds the loser sat out neither add to the streak nor end it (same as the past data)
+    if (!(seasonRecords[i].participantIds || []).includes(loserId)) continue;
     if (seasonRecords[i].loserId === loserId) streak++;
     else break;
   }
@@ -1331,8 +1356,9 @@ function allThrows(recs) {
   for (const r of recs) {
     for (const p of r.pitches || []) {
       for (const [id, h] of Object.entries(p.hands || {})) {
-        const clean = (h || "").replace("(勝)", "");
-        if (!HAND_ORDER.includes(clean)) continue;
+        // "(勝)" is the hand of someone who had already got out, carried along: not a throw
+        const clean = realHand(h);
+        if (!clean) continue;
         out[id] = out[id] || { "グー": 0, "チョキ": 0, "パー": 0 };
         out[id][clean]++;
       }
@@ -1654,14 +1680,14 @@ function renderTitles() {
 
   const loseStreak = best(), safeStreak = best(), dayLosses = best(), oneShot = best();
   const longest = best(), draws = best(), priciest = best();
-  let run = 0, runId = null;
-  const safeRun = {}, perDay = {}, oneShots = {};
+  const loseRun = {}, safeRun = {}, perDay = {}, oneShots = {};
   for (const r of recs) {
-    run = r.loserId === runId ? run + 1 : 1;
-    runId = r.loserId;
     const named = !isGuest(r.loserId);   // guests hold no personal titles
-    if (named) offer(loseStreak, run, name(r.loserId));
+    // streaks run over the rounds each person took part in; sitting one out doesn't end them
+    loseRun[r.loserId] = (loseRun[r.loserId] || 0) + 1;
+    if (named) offer(loseStreak, loseRun[r.loserId], name(r.loserId));
     for (const id of r.participantIds) {
+      if (id !== r.loserId) loseRun[id] = 0;
       safeRun[id] = id === r.loserId ? 0 : (safeRun[id] || 0) + 1;
       if (!isGuest(id)) offer(safeStreak, safeRun[id], name(id));
     }
@@ -1850,7 +1876,9 @@ function renderRecords() {
         const v = document.getElementById(`editGuest-${rid}-${id}`)?.value.trim().slice(0, 12);
         if (v) guestNames[id] = v;
       });
-      await updateDoc(doc(recordsCol, rid), { dateISO, mode, loserId, amounts, memo, guestNames, streakText: null });
+      // the 連敗 note only goes stale when the loser or the date changes
+      const streakText = rec && rec.loserId === loserId && rec.dateISO === dateISO ? (rec.streakText ?? null) : null;
+      await updateDoc(doc(recordsCol, rid), { dateISO, mode, loserId, amounts, memo, guestNames, streakText });
       document.getElementById("edit-" + rid).style.display = "none";
     };
   });
