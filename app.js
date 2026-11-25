@@ -2007,6 +2007,8 @@ const ACHS = [
     ["l25", "🍱", "大盤振る舞い", "通算25敗"],
     ["lose3", "🌧️", "泥沼", "3連敗する（参加した対戦で数えます）", true],
     ["lose5", "⛈️", "底なし沼", "5連敗する", true],
+    ["lose10", "🌪️", "奈落", "10連敗する", true],
+    ["lose15", "👹", "厄神", "15連敗する", true],
     ["oneshot", "⚡", "瞬殺", "3人以上の対戦で、1投で負けが決まる", true],
     ["day2", "😱", "厄日", "同じ日に2回負ける", true],
     ["minus10", "🕳️", "借金王", "通算の借金が−10ptに届く"],
@@ -2020,6 +2022,10 @@ const ACHS = [
   ["男気", [
     ["otoko1", "🔥", "男気", "男気モードではじめて負ける（じゃんけんに勝ち抜く）"],
     ["otoko5", "🦁", "男の中の男", "男気モードで通算5敗"],
+    ["otoko-run3", "💪", "男気三連発", "男気モードで3連敗する（参加した男気モードの対戦で数えます）", true],
+    ["otoko-run5", "🥋", "男気五連発", "男気モードで5連敗する", true],
+    ["otoko-run10", "🐉", "男気の化身", "男気モードで10連敗する", true],
+    ["otoko-run15", "⛩️", "男気の神", "男気モードで15連敗する", true],
   ]],
   ["おごりメニュー", [
     ["memo-br", "🍨", "バスキン・ロビンソン", "メモに「バスキン・ロビンソン」と書かれた対戦で負ける", true],
@@ -2070,18 +2076,23 @@ function computeAchievements() {
       if (lost) {
         s.losses++; s.loseRun++; s.safeRun = 0; s.points -= n - 1;
         if ([1, 10, 25].includes(s.losses)) award("l" + s.losses, id, date);
-        if (s.loseRun === 3 || s.loseRun === 5) award("lose" + s.loseRun, id, date);
+        if ([3, 5, 10, 15].includes(s.loseRun)) award("lose" + s.loseRun, id, date);
         if (ps.length === 1 && n >= 3) award("oneshot", id, date);
         if (ps.length >= 5) award("long5", id, date);
         if (r.mode === "男気モード") {
           s.otoko++;
           if (s.otoko === 1 || s.otoko === 5) award("otoko" + s.otoko, id, date);
+          // losses in a row over the 男気モード rounds this person took part in (通常モード
+          // rounds in between neither add to it nor end it)
+          s.otokoRun = (s.otokoRun || 0) + 1;
+          if ([3, 5, 10, 15].includes(s.otokoRun)) award("otoko-run" + s.otokoRun, id, date);
         }
         const k = `${date}|${id}`;
         dayLoss[k] = (dayLoss[k] || 0) + 1;
         if (dayLoss[k] === 2) award("day2", id, date);
       } else {
         s.safeRun++; s.loseRun = 0; s.points += 1;
+        if (r.mode === "男気モード") s.otokoRun = 0;
         if ([5, 10, 15].includes(s.safeRun)) award("safe" + s.safeRun, id, date);
         // went into the final face-off (someone had already got out) and wasn't the one who lost it
         const last = ps[ps.length - 1];
