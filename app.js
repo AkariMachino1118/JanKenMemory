@@ -1982,9 +1982,10 @@ document.getElementById("btnBackup").onclick = () => {
 };
 
 // ---------- 実績 ----------
-// Achievements are worked out from the records of every season (not stored separately), so
-// they follow any later correction of a record. Guests earn none. `repeat` ones can be earned
-// again and again and show how many times; the others are reached once.
+// Achievements are worked out from the records of every season, and whatever has been earned
+// is then saved on the member's own record (`ach`: key -> {date, n}), shared by everyone. Once
+// saved it stays, even if the record it came from is later edited or deleted. Guests earn
+// none. `repeat` ones can be earned again and again and show how many times.
 const ACHS = [
   ["参加", [
     ["g1", "🎉", "初陣", "はじめて対戦に参加する"],
@@ -2020,6 +2021,10 @@ const ACHS = [
     ["otoko1", "🔥", "男気", "男気モードではじめて負ける（じゃんけんに勝ち抜く）"],
     ["otoko5", "🦁", "男の中の男", "男気モードで通算5敗"],
   ]],
+  ["おごりメニュー", [
+    ["memo-br", "🍨", "バスキン・ロビンソン", "メモに「バスキン・ロビンソン」と書かれた対戦で負ける", true],
+    ["memo-coffee", "☕", "CoffeeToGo", "メモに「CoffeeToGo」と書かれた対戦で負ける", true],
+  ]],
   ["お金", [
     ["pay1000", "💸", "太っ腹", "1回の負けで1,000円以上おごる", true],
     ["paid5000", "🏦", "スポンサー", "おごった合計が5,000円に届く"],
@@ -2027,6 +2032,11 @@ const ACHS = [
   ]],
 ];
 const ACH_LIST = ACHS.flatMap(([, list]) => list);
+
+// Achievements given to the loser of a round whose memo carries a keyword. Matching ignores
+// spaces, the "・" in the middle, upper/lower case and full-width/half-width differences.
+function memoKey(text) { return String(text || "").normalize("NFKC").toLowerCase().replace(/[\s・･.\-_]/g, ""); }
+const MEMO_ACHS = [["memo-br", "バスキン・ロビンソン"], ["memo-coffee", "CoffeeToGo"]].map(([key, word]) => [key, memoKey(word)]);
 
 function computeAchievements() {
   const got = {};   // achievement key -> {memberId: {date, n}}, in the order they were earned
@@ -2088,6 +2098,8 @@ function computeAchievements() {
         once("got3000", id, date, s.received >= 3000);
       }
     }
+    const memo = memoKey(r.memo);
+    if (memo) MEMO_ACHS.forEach(([key, word]) => { if (memo.includes(word)) award(key, r.loserId, date); });
     // 一抜け: the first pitch splits three or more throwers and exactly one of them gets out
     const first = ps[0] && pitchThrowers(ps[0]).filter(([id]) => r.participantIds.includes(id));
     if (first && first.length >= 3) {
@@ -2102,6 +2114,47 @@ function computeAchievements() {
     }
   }
   return got;
+}
+
+function savedAchievements(computed) {
+  // what is saved on the member records, topped up with anything just worked out that has
+  // not been saved yet; a saved date is kept, and a saved count never goes down
+  const got = {};
+  for (const id of memberOrder) {
+    for (const [key, e] of Object.entries(members[id]?.ach || {})) {
+      if (e && e.date) (got[key] ||= {})[id] = { date: e.date, n: e.n || 1 };
+    }
+  }
+  for (const [key, who] of Object.entries(computed)) {
+    for (const [id, e] of Object.entries(who)) {
+      const have = (got[key] ||= {})[id];
+      if (!have) got[key][id] = { ...e };
+      else if (e.n > have.n) have.n = e.n;
+    }
+  }
+  return got;
+}
+
+let achSaving = false;
+async function saveAchievements(got) {
+  // write whatever the member records don't hold yet; every device does this, and writing
+  // the same thing twice is harmless
+  if (achSaving) return;
+  achSaving = true;
+  try {
+    const perMember = {};
+    for (const [key, who] of Object.entries(got)) {
+      for (const [id, e] of Object.entries(who)) {
+        const have = members[id]?.ach?.[key];
+        if (!have || !have.date || (have.n || 1) < e.n) (perMember[id] ||= {})[`ach.${key}`] = { date: e.date, n: e.n };
+      }
+    }
+    for (const [id, fields] of Object.entries(perMember)) await updateDoc(doc(membersCol, id), fields);
+  } catch (e) {
+    console.error(e);
+  } finally {
+    achSaving = false;
+  }
 }
 
 let achFocus = "all";      // "all" or the member whose achievements are shown
@@ -2120,7 +2173,8 @@ showPage();
 
 function renderAchievements() {
   if (!membersLoaded || !recordsLoaded) return;
-  const got = computeAchievements();
+  const got = savedAchievements(computeAchievements());
+  saveAchievements(got);
   // announce what was newly earned since the last look (not on the first load)
   const now = new Set(Object.entries(got).flatMap(([key, who]) => Object.keys(who).map((id) => `${key}|${id}`)));
   if (achKnown) {
@@ -2156,7 +2210,7 @@ function renderAchievements() {
     }).join("");
     return `<div class="ach-group">${group}</div><div class="card">${rows}</div>`;
   }).join("");
-  el.innerHTML = `<div class="sec-note" style="white-space:normal;margin:0 0 10px">達成すると、その実績に名前と達成日が記録されます。全シーズンの対戦記録から数えます（ゲストは対象外）。名前を選ぶと、その人の達成状況だけを見られます。</div>
+  el.innerHTML = `<div class="sec-note" style="white-space:normal;margin:0 0 10px">達成すると、その実績に名前と達成日が保存され、全員の画面に出ます。一度保存された実績は、後で対戦記録を直しても消えません（ゲストは対象外）。名前を選ぶと、その人の達成状況だけを見られます。</div>
     <div class="matchup-chips">${chips}</div>${groups}`;
   el.querySelectorAll("[data-ach]").forEach((b) => {
     b.onclick = () => { achFocus = b.dataset.ach; renderAchievements(); };
