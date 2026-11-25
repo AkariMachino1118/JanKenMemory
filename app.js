@@ -2248,8 +2248,7 @@ function renderAchievements() {
     }
     return `<div class="ach-group">${group}</div><div class="card"><div class="ach-grid">${tiles}</div>${detail}</div>`;
   }).join("");
-  el.innerHTML = `<div class="sec-note" style="white-space:normal;margin:0 0 10px">アイコンをタップすると、実績の名前・条件・達成した人が開きます。色が付くのは自分が達成した実績だけで、ほかの人の達成は開くと名前で見られます（達成した人は全員、誰の画面にも出ます）。達成すると名前と達成日が保存され、一度保存された実績は、後で対戦記録を直しても消えません（ゲストは対象外）。</div>
-    <div class="ach-names" style="margin:0 0 6px">${chips}</div>${groups}`;
+  el.innerHTML = `<div class="ach-names" style="margin:0 0 6px">${chips}</div>${groups}`;
   el.querySelectorAll("[data-achkey]").forEach((b) => {
     b.onclick = () => { achDetail = achDetail === b.dataset.achkey ? null : b.dataset.achkey; renderAchievements(); };
   });
