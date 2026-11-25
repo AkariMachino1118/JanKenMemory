@@ -2022,6 +2022,7 @@ const ACHS = [
   ["男気", [
     ["otoko1", "🔥", "男気", "男気モードではじめて負ける（じゃんけんに勝ち抜く）"],
     ["otoko5", "🦁", "男の中の男", "男気モードで通算5敗"],
+    ["otoko30", "👺", "男気番長", "男気モードで通算30敗"],
     ["otoko-run3", "💪", "男気三連発", "男気モードで3連敗する（参加した男気モードの対戦で数えます）", true],
     ["otoko-run5", "🎸", "長渕剛", "男気モードで5連敗する", true],
     ["otoko-run10", "🥋", "角田信朗", "男気モードで10連敗する", true],
@@ -2081,7 +2082,7 @@ function computeAchievements() {
         if (ps.length >= 5) award("long5", id, date);
         if (r.mode === "男気モード") {
           s.otoko++;
-          if (s.otoko === 1 || s.otoko === 5) award("otoko" + s.otoko, id, date);
+          if ([1, 5, 30].includes(s.otoko)) award("otoko" + s.otoko, id, date);
           // losses in a row over the 男気モード rounds this person took part in (通常モード
           // rounds in between neither add to it nor end it)
           s.otokoRun = (s.otokoRun || 0) + 1;
