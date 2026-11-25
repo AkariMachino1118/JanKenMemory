@@ -199,8 +199,23 @@
   .trend-bar .v{position:absolute;top:-16px;left:50%;transform:translateX(-50%);font-size:9.5px;font-family:"JetBrains Mono",monospace;color:var(--muted);font-variant-numeric:tabular-nums;}
   .trend-label{margin-top:8px;font-size:11px;color:var(--muted);text-align:center;}
 
-  .records{display:flex;flex-direction:column;gap:10px;}
-  .rec{padding:14px 16px;}
+  .rec-month{display:flex;align-items:center;justify-content:space-between;width:100%;background:none;border:none;font-family:inherit;color:var(--ink);font-size:14px;font-weight:700;padding:8px 2px;margin-top:14px;cursor:pointer;-webkit-tap-highlight-color:transparent;}
+  .rec-month .n{font-size:12px;font-weight:500;color:var(--muted);}
+  .rec-list{overflow:hidden;}
+  .rec-row{border-top:1px solid var(--line);}
+  .rec-row:first-child{border-top:none;}
+  .rec-row.open{background:var(--accent-soft);}
+  .rec-head{display:flex;align-items:center;gap:8px;width:100%;background:none;border:none;font-family:inherit;color:var(--ink);font-size:13.5px;padding:12px 14px;cursor:pointer;text-align:left;-webkit-tap-highlight-color:transparent;}
+  .rec-head + .rec-head{border-top:1px solid var(--line);}
+  .rec-head .d{font-family:"JetBrains Mono",monospace;font-weight:700;font-variant-numeric:tabular-nums;min-width:38px;}
+  .rec-head .wd{font-size:11.5px;color:var(--muted);margin-left:-4px;}
+  .rec-head .badge{flex:none;}
+  .rec-loser{flex:1;min-width:0;display:flex;align-items:center;gap:6px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .rec-amt{font-family:"JetBrains Mono",monospace;font-size:12px;color:var(--bad);font-variant-numeric:tabular-nums;white-space:nowrap;}
+  .rec-head .chev{color:var(--muted);font-size:12px;flex:none;}
+  .rec-sub{font-size:12px;color:var(--ink-soft);padding:0 14px 10px;margin-top:-4px;overflow-wrap:anywhere;}
+  .rec-body{padding:2px 14px 14px;}
+  .rec-body .pitch-list{margin-top:6px;padding-top:8px;}
   .rec-top{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px;}
   .rec-date{display:flex;align-items:baseline;gap:6px;}
   .rec-date .d{font-family:"JetBrains Mono",monospace;font-weight:700;font-size:14px;font-variant-numeric:tabular-nums;}
@@ -426,7 +441,7 @@
 
   <section id="sec-records">
     <div class="sec-head"><h2>対戦記録</h2><span class="sec-note" id="rec-count"></span></div>
-    <div class="records" id="records"></div>
+    <div id="recordsLink"></div>
   </section>
 
   <section id="sec-backup">
@@ -441,6 +456,15 @@
   <footer>Firebase上で動作する共有ジャンケン帳 ・ データはこの友達グループだけで共有されます</footer>
 </div>
 
+<div class="wrap" id="recPage" style="display:none">
+  <header class="top">
+    <p class="eyebrow">みんなのじゃんけん記録</p>
+    <h1 class="ach-title">📒 対戦記録</h1>
+    <button class="btn ghost small" id="btnRecBack" type="button">← ジャンケン帳に戻る</button>
+  </header>
+  <div id="records" style="margin-top:22px"></div>
+</div>
+
 <div class="wrap" id="achPage" style="display:none">
   <header class="top">
     <p class="eyebrow">みんなのじゃんけん記録</p>
@@ -450,6 +474,6 @@
   <div id="achievements" style="margin-top:22px"><div class="empty">読み込み中…</div></div>
 </div>
 
-<script type="module" src="./app.js?v=61"></script>
+<script type="module" src="./app.js?v=62"></script>
 </body>
 </html>
