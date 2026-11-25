@@ -2022,10 +2022,11 @@ const ACHS = [
   ["男気", [
     ["otoko1", "🔥", "男気", "男気モードではじめて負ける（じゃんけんに勝ち抜く）"],
     ["otoko5", "🦁", "男の中の男", "男気モードで通算5敗"],
+    ["otoko30", "👺", "男気番長", "男気モードで通算30敗"],
     ["otoko-run3", "💪", "男気三連発", "男気モードで3連敗する（参加した男気モードの対戦で数えます）", true],
     ["otoko-run5", "🎸", "長渕剛", "男気モードで5連敗する", true],
     ["otoko-run10", "🥋", "角田信朗", "男気モードで10連敗する", true],
-    ["otoko-run15", "⛩️", "男気の神", "男気モードで15連敗する", true],
+    ["otoko-run15", "🐲", "ドラゴン", "男気モードで15連敗する", true],
   ]],
   ["おごりメニュー", [
     ["memo-br", "🍨", "バスキン・ロビンソン", "メモに「バスキン・ロビンソン」と書かれた対戦で負ける", true],
@@ -2033,6 +2034,7 @@ const ACHS = [
   ]],
   ["お金", [
     ["pay1000", "💸", "太っ腹", "1回の負けで1,000円以上おごる", true],
+    ["pay2000", "🎁", "気前よし", "1回の負けで2,000円以上おごる", true],
     ["pay3000", "🍾", "豪遊", "1回の負けで3,000円以上おごる", true],
     ["pay5000", "🛢️", "石油王", "1回の負けで5,000円以上おごる", true],
     ["paid5000", "🏦", "スポンサー", "おごった合計が5,000円に届く"],
@@ -2081,7 +2083,7 @@ function computeAchievements() {
         if (ps.length >= 5) award("long5", id, date);
         if (r.mode === "男気モード") {
           s.otoko++;
-          if (s.otoko === 1 || s.otoko === 5) award("otoko" + s.otoko, id, date);
+          if ([1, 5, 30].includes(s.otoko)) award("otoko" + s.otoko, id, date);
           // losses in a row over the 男気モード rounds this person took part in (通常モード
           // rounds in between neither add to it nor end it)
           s.otokoRun = (s.otokoRun || 0) + 1;
@@ -2109,7 +2111,7 @@ function computeAchievements() {
       const amt = amts[id] || 0;
       if (amt < 0) {
         s.paid -= amt;
-        [1000, 3000, 5000].forEach((v) => { if (-amt >= v) award("pay" + v, id, date); });
+        [1000, 2000, 3000, 5000].forEach((v) => { if (-amt >= v) award("pay" + v, id, date); });
         [5000, 10000, 30000, 50000].forEach((v) => once("paid" + v, id, date, s.paid >= v));
       } else if (amt > 0) {
         s.received += amt;
@@ -2226,7 +2228,10 @@ function renderAchievements() {
       return Object.keys(who).filter((id) => members[id] && (achFocus === "all" || id === achFocus))
         .sort((a, b) => (who[a].date < who[b].date ? -1 : who[a].date > who[b].date ? 1 : 0));
     };
-    const tiles = list.map(([key, icon, name]) => `<button type="button" class="ach-tile ${idsOf(key).length ? "" : "locked"} ${key === achDetail ? "on" : ""}" data-achkey="${key}" aria-label="${name}" aria-expanded="${key === achDetail}">${icon}</button>`).join("");
+    // an icon is in colour only once the logged-in member has earned it themselves; what
+    // others have earned still shows as names when the icon is opened
+    const mine = (key) => !!(myId && got[key]?.[myId]);
+    const tiles = list.map(([key, icon, name]) => `<button type="button" class="ach-tile ${mine(key) ? "" : "locked"} ${key === achDetail ? "on" : ""}" data-achkey="${key}" aria-label="${name}" aria-expanded="${key === achDetail}">${icon}</button>`).join("");
     const open = list.find(([key]) => key === achDetail);
     let detail = "";
     if (open) {
@@ -2234,15 +2239,16 @@ function renderAchievements() {
       const who = got[key] || {};
       const ids = idsOf(key);
       const names = ids.map((id) => `<span class="ach-name"><span class="dot" style="background:${colorVar(id)}"></span>${esc(members[id].name)}<span class="when">${day(who[id].date)}${repeat && who[id].n > 1 ? `（初回）・計${who[id].n}回` : ""}</span></span>`).join("");
-      detail = `<div class="ach-row ${ids.length ? "" : "locked"}">
+      detail = `<div class="ach-row ${mine(key) ? "" : "locked"}">
         <span class="icon">${icon}</span>
         <div class="body"><div class="t">${name}${repeat ? '<span class="rep">何度でも</span>' : ""}</div><div class="d">${desc}</div>
+          ${myId && members[myId] && !isGuest(myId) ? `<div class="ach-mine ${mine(key) ? "done" : ""}">${mine(key) ? "✓ あなたは達成済み" : "あなたは未達成"}</div>` : ""}
           <div class="ach-names">${names || `<span class="none">${achFocus === "all" ? "まだ誰も達成していません" : "未達成"}</span>`}</div></div>
       </div>`;
     }
     return `<div class="ach-group">${group}</div><div class="card"><div class="ach-grid">${tiles}</div>${detail}</div>`;
   }).join("");
-  el.innerHTML = `<div class="sec-note" style="white-space:normal;margin:0 0 10px">アイコンをタップすると、実績の名前・条件・達成した人が開きます（薄いアイコンはまだ誰も達成していない実績）。達成すると名前と達成日が保存され、全員の画面に出ます。一度保存された実績は、後で対戦記録を直しても消えません（ゲストは対象外）。名前を選ぶと、その人の達成状況だけを見られます。</div>
+  el.innerHTML = `<div class="sec-note" style="white-space:normal;margin:0 0 10px">アイコンをタップすると、実績の名前・条件・達成した人が開きます。色が付くのは自分が達成した実績だけで、ほかの人の達成は開くと名前で見られます。達成すると名前と達成日が保存され、全員の画面に出ます。一度保存された実績は、後で対戦記録を直しても消えません（ゲストは対象外）。名前を選ぶと、その人の達成状況だけを見られます。</div>
     <div class="matchup-chips">${chips}</div>${groups}`;
   el.querySelectorAll("[data-ach]").forEach((b) => {
     b.onclick = () => { achFocus = b.dataset.ach; renderAchievements(); };
