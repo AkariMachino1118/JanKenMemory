@@ -1766,14 +1766,66 @@ function renderTitles() {
 }
 
 const openEdits = new Set();     // records whose edit box is open
-const openDetails = new Set();   // records whose pitch details are unfolded
+const openRecs = new Set();      // records unfolded on the records page
+const monthOpen = {};            // month -> folded open or shut by hand (default: newest month open)
+const WEEKDAY_J = ["日", "月", "火", "水", "木", "金", "土"];
+function recDay(r) {
+  const d = new Date(r.dateISO + "T00:00:00");
+  return { label: `${d.getMonth() + 1}/${d.getDate()}`, wd: WEEKDAY_J[d.getDay()] };
+}
+function recBadge(r) {
+  return `<span class="badge ${r.mode === "男気モード" ? "otoko" : "normal"}">${r.mode === "男気モード" ? "男気" : "通常"}</span>`;
+}
+
+// The main page only carries the latest few rounds and a link; the whole list lives on its
+// own page (#records), grouped by month, one line per round that unfolds when tapped.
+function renderRecordsLink(recs) {
+  const el = document.getElementById("recordsLink");
+  if (!recs.length) { el.innerHTML = `<div class="card"><div class="empty">${esc(seasonLabel(selectedSeason))}の対戦記録がまだありません。</div></div>`; return; }
+  const rows = recs.slice(-3).reverse().map((r) => {
+    const { label, wd } = recDay(r);
+    return `<button type="button" class="rec-head" data-recgo="${r.id}">
+      <span class="d">${label}</span><span class="wd">(${wd})</span>${recBadge(r)}
+      <span class="rec-loser"><span class="dot" style="background:${colorVar(r.loserId)}"></span>負け：${esc(recName(r, r.loserId))}</span>
+      <span class="chev">›</span>
+    </button>`;
+  }).join("");
+  el.innerHTML = `<div class="card rec-list">${rows}</div>
+    <button type="button" class="btn ghost" id="btnRecAll" style="width:100%;margin-top:10px">すべての対戦記録を見る（全${recs.length}戦）→</button>`;
+  const go = (rid) => {
+    if (rid) { openRecs.add(rid); const r = recs.find((x) => x.id === rid); if (r) monthOpen[r.dateISO.slice(0, 7)] = true; }
+    location.hash = "#records";
+    showPage();
+  };
+  el.querySelectorAll("[data-recgo]").forEach((b) => { b.onclick = () => go(b.dataset.recgo); });
+  document.getElementById("btnRecAll").onclick = () => go(null);
+}
+
 function renderRecords() {
   const recs = visibleRecords();
   document.getElementById("rec-count").textContent = recs.length ? `全${recs.length}戦` : "";
+  renderRecordsLink(recs);
+  if (!recOpen()) return;
   const el = document.getElementById("records");
-  if (!recs.length) { el.innerHTML = `<div class="empty">${esc(seasonLabel(selectedSeason))}の対戦記録がまだありません。</div>`; return; }
+  // which season / mode is listed can be switched here too (same choice as on the main page)
+  const maxSeason = Math.max(currentSeason, ...Object.keys(seasons).map(Number), 1);
+  let seasonChips = "";
+  if (maxSeason > 1) for (let n = 1; n <= maxSeason; n++) seasonChips += `<button class="btn ghost small ${n === selectedSeason ? "on" : ""}" data-recseason="${n}">${esc(seasonLabel(n))}</button>`;
+  const modeChips = [["all", "すべて"], ["通常モード", "通常モード"], ["男気モード", "男気モード"]]
+    .map(([val, label]) => `<button class="btn ghost small ${selectedMode === val ? "on" : ""}" data-recmode="${val}">${label}</button>`).join("");
+  const filters = `${seasonChips ? `<div class="matchup-chips">${seasonChips}</div>` : ""}<div class="matchup-chips">${modeChips}</div>`;
+  const bindFilters = () => {
+    el.querySelectorAll("[data-recseason]").forEach((b) => {
+      b.onclick = () => { selectedSeason = Number(b.dataset.recseason); trendAnimUntil = 0; renderSeason(); renderAll(); };
+    });
+    el.querySelectorAll("[data-recmode]").forEach((b) => {
+      b.onclick = () => { selectedMode = b.dataset.recmode; trendAnimUntil = 0; renderSeason(); renderAll(); };
+    });
+  };
+  if (!recs.length) { el.innerHTML = `${filters}<div class="card"><div class="empty">${esc(seasonLabel(selectedSeason))}の対戦記録がまだありません。</div></div>`; bindFilters(); return; }
   // an edit in progress is carried over the redraw: what was typed, and the mode picked
   [...openEdits].forEach((rid) => { if (!myId || !recs.some((r) => r.id === rid)) openEdits.delete(rid); });
+  recs.forEach((r) => { if (openEdits.has(r.id)) monthOpen[r.dateISO.slice(0, 7)] = true; });
   const editing = [...openEdits].map((rid) => document.getElementById("edit-" + rid)).filter(Boolean);
   const typed = keepTyped(el, editing);
   const pickedMode = {};
@@ -1781,11 +1833,9 @@ function renderRecords() {
     const on = box.querySelector("[data-editmode].on");
     if (on) pickedMode[on.dataset.rid] = on.dataset.editmode;
   });
-  const weekdayJ = ["日", "月", "火", "水", "木", "金", "土"];
-  el.innerHTML = recs.slice().reverse().map((r) => {
-    const d = new Date(r.dateISO + "T00:00:00");
-    const label = `${d.getMonth() + 1}/${d.getDate()}`;
-    const wd = weekdayJ[d.getDay()];
+  const rowHtml = (r) => {
+    const { label, wd } = recDay(r);
+    const open = openRecs.has(r.id) || openEdits.has(r.id);
     const amts = recordAmounts(r);
     const hands = r.participantIds.map((id) => {
       const isLose = id === r.loserId;
@@ -1837,21 +1887,41 @@ function renderRecords() {
         <button class="btn ghost small" data-delete="${r.id}" style="color:var(--bad)">削除</button>
       </div>
     </div>` : "";
-    return `<div class="card rec">
-      <div class="rec-top">
-        <div class="rec-date"><span class="d">${label}</span><span class="sec-note">(${wd})</span></div>
-        <div style="display:flex;align-items:center;gap:8px">
-          <span class="badge ${r.mode === "男気モード" ? "otoko" : "normal"}">${r.mode}</span>
-          ${editBtn}
-        </div>
-      </div>
-      <div class="rec-hands">${hands}</div>
-      ${r.memo ? `<div class="memo">📝 ${esc(r.memo)}</div>` : ""}
-      ${r.streakText ? `<div class="streak">🔥 ${esc(r.streakText)}</div>` : ""}
-      ${pitches ? `<details data-details="${r.id}" ${openDetails.has(r.id) ? "open" : ""}><summary>投球の詳細（${(r.pitches || []).length}球）</summary><div class="pitch-list">${pitches}</div></details>` : ""}
-      ${editBox}
+    const paid = -(amts[r.loserId] || 0);
+    const sub = [r.memo ? `📝 ${esc(r.memo)}` : "", r.streakText ? `<span class="streak">🔥 ${esc(r.streakText)}</span>` : ""].filter(Boolean).join("　");
+    // folded: one line (date, mode, who lost, what it cost) plus the memo; the hands, the
+    // pitches and the edit box only exist while the round is unfolded
+    return `<div class="rec-row ${open ? "open" : ""}">
+      <button type="button" class="rec-head" data-rec="${r.id}" aria-expanded="${open}">
+        <span class="d">${label}</span><span class="wd">(${wd})</span>${recBadge(r)}
+        <span class="rec-loser"><span class="dot" style="background:${colorVar(r.loserId)}"></span>負け：${esc(recName(r, r.loserId))}</span>
+        ${paid > 0 ? `<span class="rec-amt">${paid.toLocaleString()}円</span>` : ""}
+        <span class="chev">${open ? "▴" : "▾"}</span>
+      </button>
+      ${sub ? `<div class="rec-sub">${sub}</div>` : ""}
+      ${open ? `<div class="rec-body">
+        <div class="rec-hands">${hands}</div>
+        ${pitches ? `<div class="sec-note">投球の詳細（${(r.pitches || []).length}球）</div><div class="pitch-list">${pitches}</div>` : ""}
+        ${editBtn ? `<div style="margin-top:12px">${editBtn}</div>` : ""}
+        ${editBox}
+      </div>` : ""}
     </div>`;
+  };
+  // newest first, one block per month; only the newest month starts unfolded
+  const months = [];
+  recs.slice().reverse().forEach((r) => {
+    const key = r.dateISO.slice(0, 7);
+    if (!months.length || months[months.length - 1].key !== key) months.push({ key, recs: [] });
+    months[months.length - 1].recs.push(r);
+  });
+  el.innerHTML = filters + months.map((m, i) => {
+    const open = monthOpen[m.key] ?? (i === 0 || m.recs.some((r) => openEdits.has(r.id)));
+    return `<button type="button" class="rec-month" data-month="${m.key}" aria-expanded="${open}">
+        <span>${Number(m.key.slice(0, 4))}年${Number(m.key.slice(5, 7))}月</span><span class="n">${m.recs.length}戦 ${open ? "▴" : "▾"}</span>
+      </button>
+      ${open ? `<div class="card rec-list">${m.recs.map(rowHtml).join("")}</div>` : ""}`;
   }).join("");
+  bindFilters();
 
   const syncLoserAmount = (rid) => {
     // The loser's field is not typed into: it shows the winners' total it pays.
@@ -1876,13 +1946,20 @@ function renderRecords() {
     el.querySelectorAll(`[data-editmode][data-rid="${rid}"]`).forEach((x) => x.classList.toggle("on", x.dataset.editmode === mode));
   }
   openEdits.forEach((rid) => syncLoserAmount(rid));
-  el.querySelectorAll("[data-details]").forEach((d) => {
-    d.ontoggle = () => { if (d.open) openDetails.add(d.dataset.details); else openDetails.delete(d.dataset.details); };
+  el.querySelectorAll("[data-rec]").forEach((b) => {
+    b.onclick = () => {
+      const rid = b.dataset.rec;
+      if (openRecs.has(rid) || openEdits.has(rid)) { openRecs.delete(rid); openEdits.delete(rid); } else openRecs.add(rid);
+      renderRecords();
+    };
+  });
+  el.querySelectorAll("[data-month]").forEach((b) => {
+    b.onclick = () => { monthOpen[b.dataset.month] = b.getAttribute("aria-expanded") !== "true"; renderRecords(); };
   });
   el.querySelectorAll("[data-toggleedit]").forEach((b) => {
     b.onclick = () => {
       const rid = b.dataset.toggleedit;
-      if (openEdits.has(rid)) openEdits.delete(rid); else openEdits.add(rid);
+      if (openEdits.has(rid)) openEdits.delete(rid); else { openEdits.add(rid); openRecs.add(rid); }
       document.getElementById("edit-" + rid).style.display = openEdits.has(rid) ? "block" : "none";
       syncLoserAmount(rid);
     };
@@ -2181,11 +2258,20 @@ async function saveAchievements(got) {
 let achDetail = null;     // the achievement whose details are unfolded on the page
 let achKnown = null;       // what had been earned at the last look, to announce new ones
 function achOpen() { return location.hash === "#achievements"; }
+function recOpen() { return location.hash === "#records"; }
+let shownPage = "main", mainScroll = 0;
 function showPage() {
-  const on = achOpen();
-  document.getElementById("achPage").style.display = on ? "" : "none";
-  document.getElementById("mainPage").style.display = on ? "none" : "";
-  if (on) { renderAchievements(); window.scrollTo(0, 0); }
+  // the achievements and the records each have a page of their own; coming back to the main
+  // page returns to where it was left
+  const page = achOpen() ? "ach" : recOpen() ? "rec" : "main";
+  if (shownPage === "main" && page !== "main") mainScroll = window.scrollY;
+  document.getElementById("achPage").style.display = page === "ach" ? "" : "none";
+  document.getElementById("recPage").style.display = page === "rec" ? "" : "none";
+  document.getElementById("mainPage").style.display = page === "main" ? "" : "none";
+  if (page === "ach") renderAchievements();
+  if (page === "rec") renderRecords();
+  if (page !== shownPage) window.scrollTo(0, page === "main" ? mainScroll : 0);
+  shownPage = page;
 }
 window.addEventListener("hashchange", showPage);
 // the link sits in the 記録・称号 heading, which folds its section when tapped: keep the tap
@@ -2193,6 +2279,7 @@ window.addEventListener("hashchange", showPage);
 document.getElementById("btnAch").onclick = (e) => { e.preventDefault(); e.stopPropagation(); location.hash = "#achievements"; showPage(); };
 document.getElementById("btnAch").addEventListener("keydown", (e) => e.stopPropagation());
 document.getElementById("btnAchBack").onclick = () => { location.hash = ""; showPage(); };
+document.getElementById("btnRecBack").onclick = () => { location.hash = ""; showPage(); };
 showPage();
 
 function renderAchievements() {
