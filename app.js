@@ -3,7 +3,7 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/10.14.1/fireba
 import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
 import {
   getFirestore, doc, setDoc, updateDoc, deleteDoc, onSnapshot,
-  collection, runTransaction, serverTimestamp, arrayUnion, increment, waitForPendingWrites,
+  collection, runTransaction, serverTimestamp, increment, waitForPendingWrites,
 } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
 
 // ---------- theme toggle ----------
@@ -80,8 +80,10 @@ let viewOnly = false;
 let members = {};     // id -> data
 let membersLoaded = false;  // false until the member list has arrived from the server
 let pendingLogin = false;   // the login button was pressed before the member list arrived
+let justJoined = false;     // just registered: the gate stays up, showing the new ID, until dismissed
 let memberOrder = []; // ids sorted by createdAt
 let records = [];     // array of {id, ...data}
+let recordsLoaded = false;
 let session = null;   // current session doc data, or null
 let seasons = {};        // id(string) -> {label, startedAt}
 let currentSeason = 1;   // the season new rounds are recorded into
@@ -123,7 +125,10 @@ signInAnonymously(auth).catch((e) => {
   console.error(e);
 });
 
+let booted = false;
 function boot() {
+  if (booted) return;   // the auth state can be reported more than once
+  booted = true;
   trySeed();
   onSnapshot(membersCol, (snap) => {
     members = {};
@@ -141,6 +146,7 @@ function boot() {
   });
   onSnapshot(recordsCol, (snap) => {
     records = [];
+    recordsLoaded = true;
     snap.forEach((d) => records.push({ id: d.id, ...d.data() }));
     records.sort((a, b) => (a.dateISO < b.dateISO ? -1 : a.dateISO > b.dateISO ? 1
       : (a.createdAt?.toMillis?.() ?? 0) - (b.createdAt?.toMillis?.() ?? 0)));
@@ -157,8 +163,12 @@ function boot() {
     renderSeason();
   });
   onSnapshot(seasonMetaRef, (snap) => {
+    const before = currentSeason;
     currentSeason = snap.exists() ? (snap.data().current || 1) : 1;
-    if (!seasonMetaLoaded) { selectedSeason = currentSeason; seasonMetaLoaded = true; }
+    // someone watching the current season moves on with it when a new one starts (on any
+    // device); someone looking back at an older season stays where they are
+    if (!seasonMetaLoaded || selectedSeason === before) selectedSeason = currentSeason;
+    seasonMetaLoaded = true;
     renderSeason();
     scheduleRenderAll();
   });
@@ -320,8 +330,20 @@ document.getElementById("btnJoin").onclick = async () => {
   myId = id;
   localStorage.setItem("jankenMemberId", id);
   viewOnly = false;
+  justJoined = true;
+  document.getElementById("btnJoin").style.display = "none";
   document.getElementById("codeReveal").style.display = "block";
   document.getElementById("codeRevealVal").textContent = id;
+};
+
+document.getElementById("btnJoinDone").onclick = () => {
+  justJoined = false;
+  document.getElementById("codeReveal").style.display = "none";
+  document.getElementById("btnJoin").style.display = "";
+  document.getElementById("joinName").value = "";
+  document.getElementById("joinId").value = "";
+  renderGate();
+  renderAll();
 };
 
 document.getElementById("btnGuest").onclick = async () => {
@@ -335,12 +357,21 @@ document.getElementById("btnGuest").onclick = async () => {
 
 document.getElementById("btnViewOnly").onclick = () => {
   viewOnly = true;
+  if (membersLoaded && myId && !members[myId]) {
+    // a remembered ID that no longer matches anyone must not count as logged in
+    myId = null;
+    localStorage.removeItem("jankenMemberId");
+    renderAll();
+  }
   document.getElementById("gate").style.display = "none";
+  renderWhoami();
 };
 
 function renderGate() {
   const gate = document.getElementById("gate");
-  if (myId && members[myId]) {
+  if (justJoined) {
+    gate.style.display = "flex";
+  } else if (myId && members[myId]) {
     gate.style.display = "none";
   } else if (!viewOnly && (membersLoaded || !myId)) {
     // a remembered ID keeps the gate away while the member list loads
@@ -376,9 +407,34 @@ function esc(s) {
   return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
+// The page is redrawn whenever anyone's change arrives. This carries what is being typed (and
+// where the cursor is) across such a redraw, for the fields that still exist afterwards.
+function keepTyped(el, boxes) {
+  const vals = {};
+  (boxes || [el]).forEach((box) => box.querySelectorAll("input[id], select[id]").forEach((i) => { vals[i.id] = i.value; }));
+  const act = document.activeElement;
+  const focusId = act && act.id && el.contains(act) ? act.id : null;
+  let sel = null;
+  try { if (focusId && act.selectionStart != null) sel = [act.selectionStart, act.selectionEnd]; } catch (e) {}
+  return {
+    restore() {
+      for (const [id, v] of Object.entries(vals)) {
+        const i = document.getElementById(id);
+        if (i) i.value = v;
+      }
+      const f = focusId && document.getElementById(focusId);
+      if (f) {
+        f.focus({ preventScroll: true });
+        try { if (sel) f.setSelectionRange(sel[0], sel[1]); } catch (e) {}
+      }
+    },
+  };
+}
+
 // ---------- members section ----------
 function renderMembers() {
   const el = document.getElementById("members");
+  const typed = keepTyped(el);
   let html = "";
   // guests are listed only while they are in use (added for a round); the named members stay
   const shown = memberOrder.filter((id) => !isGuest(id) || members[id].active);
@@ -410,6 +466,7 @@ function renderMembers() {
     <button class="btn" id="btnAddMember">追加</button>
   </div>`;
   el.innerHTML = html;
+  typed.restore();
   const colorBtn = document.getElementById("btnColor");
   if (colorBtn) colorBtn.onclick = () => { colorPickerOpen = !colorPickerOpen; renderMembers(); };
   el.querySelectorAll("[data-color]").forEach((b) => {
@@ -561,7 +618,7 @@ function renderRound() {
 
   const logHtml = session.pitches && session.pitches.length
     ? `<div class="pitch-log">${session.pitches.map((p) =>
-        `<div>${Object.entries(p.hands).map(([id, h]) => `${(members[id]?.name ?? id)[0]}:${h}`).join(" ")} <span class="res">→ ${p.result}</span></div>`
+        `<div>${Object.entries(p.hands).map(([id, h]) => `${esc((members[id]?.name ?? id)[0])}:${esc(h)}`).join(" ")} <span class="res">→ ${p.result}</span></div>`
       ).join("")}</div>` : "";
 
   const secretHtml = secretOn && inPool
@@ -1100,7 +1157,9 @@ async function maybeResolve() {
       if (s.status !== "collecting") return;
       if (!s.pool.every((id) => s.hands && s.hands[id])) { settled = false; return; }
 
-      const newPitch = { hands: { ...s.hands }, result: "" };
+      // only the hands of those still in the pool: a late tap from a device showing the
+      // previous pitch can leave a hand behind for someone who is already out
+      const newPitch = { hands: Object.fromEntries(s.pool.map((id) => [id, s.hands[id]])), result: "" };
       const withdrawnNow = s.pool.filter((id) => s.hands[id] === "不参加");
       const throwers = s.pool.filter((id) => s.hands[id] !== "不参加");
       const withdrawnAll = [...(s.withdrawn || []), ...withdrawnNow];
@@ -1118,7 +1177,7 @@ async function maybeResolve() {
         const streakText = computeStreakText(loserId);
         const newRecRef = doc(recordsCol);
         tx.set(newRecRef, {
-          dateISO: new Date().toISOString().slice(0, 10),
+          dateISO: todayISO(),
           mode: s.mode, participantIds, hands: finalHands,
           loserId, streakText, pitches: allPitches, createdAt: serverTimestamp(),
           seasonId: currentSeason,
@@ -1154,7 +1213,7 @@ async function maybeResolve() {
         newPitch.result = "あいこ";
         tx.update(sessionRef, {
           pool: throwers, hands: {}, pitchIndex: s.pitchIndex + 1,
-          pitches: arrayUnion(newPitch), withdrawn: withdrawnAll,
+          pitches: [...(s.pitches || []), newPitch], withdrawn: withdrawnAll,
         });
         return;
       }
@@ -1171,7 +1230,7 @@ async function maybeResolve() {
         newPitch.result = "勝ち抜け発生";
         tx.update(sessionRef, {
           pool: continuing, hands: {}, pitchIndex: s.pitchIndex + 1,
-          pitches: arrayUnion(newPitch), withdrawn: withdrawnAll,
+          pitches: [...(s.pitches || []), newPitch], withdrawn: withdrawnAll,
         });
         return;
       }
@@ -1191,10 +1250,19 @@ async function maybeResolve() {
   if (resolveTries < 6) setTimeout(maybeResolve, Math.min(4000, 400 * 2 ** resolveTries++));
 }
 
+function todayISO() {
+  // today's date on this device (toISOString would give the UTC date, which is still
+  // "yesterday" in Japan until 9 in the morning)
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
 function computeStreakText(loserId) {
   const seasonRecords = records.filter((r) => (r.seasonId || 1) === currentSeason);
   let streak = 1;
   for (let i = seasonRecords.length - 1; i >= 0; i--) {
+    // rounds the loser sat out neither add to the streak nor end it (same as the past data)
+    if (!(seasonRecords[i].participantIds || []).includes(loserId)) continue;
     if (seasonRecords[i].loserId === loserId) streak++;
     else break;
   }
@@ -1239,6 +1307,7 @@ function renderAll() {
   renderMatchups();
   renderTitles();
   renderRecords();
+  renderAchievements();
 }
 
 function renderStandings() {
@@ -1331,8 +1400,9 @@ function allThrows(recs) {
   for (const r of recs) {
     for (const p of r.pitches || []) {
       for (const [id, h] of Object.entries(p.hands || {})) {
-        const clean = (h || "").replace("(勝)", "");
-        if (!HAND_ORDER.includes(clean)) continue;
+        // "(勝)" is the hand of someone who had already got out, carried along: not a throw
+        const clean = realHand(h);
+        if (!clean) continue;
         out[id] = out[id] || { "グー": 0, "チョキ": 0, "パー": 0 };
         out[id][clean]++;
       }
@@ -1654,14 +1724,14 @@ function renderTitles() {
 
   const loseStreak = best(), safeStreak = best(), dayLosses = best(), oneShot = best();
   const longest = best(), draws = best(), priciest = best();
-  let run = 0, runId = null;
-  const safeRun = {}, perDay = {}, oneShots = {};
+  const loseRun = {}, safeRun = {}, perDay = {}, oneShots = {};
   for (const r of recs) {
-    run = r.loserId === runId ? run + 1 : 1;
-    runId = r.loserId;
     const named = !isGuest(r.loserId);   // guests hold no personal titles
-    if (named) offer(loseStreak, run, name(r.loserId));
+    // streaks run over the rounds each person took part in; sitting one out doesn't end them
+    loseRun[r.loserId] = (loseRun[r.loserId] || 0) + 1;
+    if (named) offer(loseStreak, loseRun[r.loserId], name(r.loserId));
     for (const id of r.participantIds) {
+      if (id !== r.loserId) loseRun[id] = 0;
       safeRun[id] = id === r.loserId ? 0 : (safeRun[id] || 0) + 1;
       if (!isGuest(id)) offer(safeStreak, safeRun[id], name(id));
     }
@@ -1695,11 +1765,22 @@ function renderTitles() {
     </div>`).join("");
 }
 
+const openEdits = new Set();     // records whose edit box is open
+const openDetails = new Set();   // records whose pitch details are unfolded
 function renderRecords() {
   const recs = visibleRecords();
   document.getElementById("rec-count").textContent = recs.length ? `全${recs.length}戦` : "";
   const el = document.getElementById("records");
   if (!recs.length) { el.innerHTML = `<div class="empty">${esc(seasonLabel(selectedSeason))}の対戦記録がまだありません。</div>`; return; }
+  // an edit in progress is carried over the redraw: what was typed, and the mode picked
+  [...openEdits].forEach((rid) => { if (!myId || !recs.some((r) => r.id === rid)) openEdits.delete(rid); });
+  const editing = [...openEdits].map((rid) => document.getElementById("edit-" + rid)).filter(Boolean);
+  const typed = keepTyped(el, editing);
+  const pickedMode = {};
+  editing.forEach((box) => {
+    const on = box.querySelector("[data-editmode].on");
+    if (on) pickedMode[on.dataset.rid] = on.dataset.editmode;
+  });
   const weekdayJ = ["日", "月", "火", "水", "木", "金", "土"];
   el.innerHTML = recs.slice().reverse().map((r) => {
     const d = new Date(r.dateISO + "T00:00:00");
@@ -1723,7 +1804,7 @@ function renderRecords() {
       return `<div class="pitch"><span class="hs">${hs}</span><span class="res ${cls}">${p.result}</span></div>`;
     }).join("");
     const editBtn = myId ? `<button class="btn ghost small" data-toggleedit="${r.id}">編集</button>` : "";
-    const editBox = myId ? `<div class="rec-edit" id="edit-${r.id}" style="display:none">
+    const editBox = myId ? `<div class="rec-edit" id="edit-${r.id}" style="display:${openEdits.has(r.id) ? "block" : "none"}">
       <input type="date" class="field" id="editDate-${r.id}" value="${r.dateISO}">
       <div class="mode-pick" style="margin:10px 0">
         <button class="btn ghost small mode-normal ${r.mode === "通常モード" ? "on" : ""}" data-editmode="通常モード" data-rid="${r.id}">通常モード</button>
@@ -1767,7 +1848,7 @@ function renderRecords() {
       <div class="rec-hands">${hands}</div>
       ${r.memo ? `<div class="memo">📝 ${esc(r.memo)}</div>` : ""}
       ${r.streakText ? `<div class="streak">🔥 ${esc(r.streakText)}</div>` : ""}
-      ${pitches ? `<details><summary>投球の詳細（${(r.pitches || []).length}球）</summary><div class="pitch-list">${pitches}</div></details>` : ""}
+      ${pitches ? `<details data-details="${r.id}" ${openDetails.has(r.id) ? "open" : ""}><summary>投球の詳細（${(r.pitches || []).length}球）</summary><div class="pitch-list">${pitches}</div></details>` : ""}
       ${editBox}
     </div>`;
   }).join("");
@@ -1790,11 +1871,20 @@ function renderRecords() {
       loserInput.value = legacyLoserAmount(rec) || "";
     }
   };
+  typed.restore();
+  for (const [rid, mode] of Object.entries(pickedMode)) {
+    el.querySelectorAll(`[data-editmode][data-rid="${rid}"]`).forEach((x) => x.classList.toggle("on", x.dataset.editmode === mode));
+  }
+  openEdits.forEach((rid) => syncLoserAmount(rid));
+  el.querySelectorAll("[data-details]").forEach((d) => {
+    d.ontoggle = () => { if (d.open) openDetails.add(d.dataset.details); else openDetails.delete(d.dataset.details); };
+  });
   el.querySelectorAll("[data-toggleedit]").forEach((b) => {
     b.onclick = () => {
-      const box = document.getElementById("edit-" + b.dataset.toggleedit);
-      box.style.display = box.style.display === "none" ? "block" : "none";
-      syncLoserAmount(b.dataset.toggleedit);
+      const rid = b.dataset.toggleedit;
+      if (openEdits.has(rid)) openEdits.delete(rid); else openEdits.add(rid);
+      document.getElementById("edit-" + rid).style.display = openEdits.has(rid) ? "block" : "none";
+      syncLoserAmount(rid);
     };
   });
   el.querySelectorAll("[data-amtrid]").forEach((input) => {
@@ -1816,7 +1906,7 @@ function renderRecords() {
     };
   });
   el.querySelectorAll("[data-canceledit]").forEach((b) => {
-    b.onclick = () => { document.getElementById("edit-" + b.dataset.canceledit).style.display = "none"; };
+    b.onclick = () => { openEdits.delete(b.dataset.canceledit); renderRecords(); };
   });
   el.querySelectorAll("[data-delete]").forEach((b) => {
     b.onclick = async () => {
@@ -1850,8 +1940,282 @@ function renderRecords() {
         const v = document.getElementById(`editGuest-${rid}-${id}`)?.value.trim().slice(0, 12);
         if (v) guestNames[id] = v;
       });
-      await updateDoc(doc(recordsCol, rid), { dateISO, mode, loserId, amounts, memo, guestNames, streakText: null });
-      document.getElementById("edit-" + rid).style.display = "none";
+      // the 連敗 note only goes stale when the loser or the date changes
+      const streakText = rec && rec.loserId === loserId && rec.dateISO === dateISO ? (rec.streakText ?? null) : null;
+      await updateDoc(doc(recordsCol, rid), { dateISO, mode, loserId, amounts, memo, guestNames, streakText });
+      openEdits.delete(rid);
+      const box = document.getElementById("edit-" + rid);
+      if (box) box.style.display = "none";
     };
+  });
+}
+
+// ---------- backup ----------
+// Saves everything the app keeps (members, records, seasons) as one JSON file on this device.
+function plainForBackup(v) {
+  if (v && typeof v.toDate === "function") return v.toDate().toISOString();
+  if (v && typeof v.toMillis === "function") return new Date(v.toMillis()).toISOString();
+  if (Array.isArray(v)) return v.map(plainForBackup);
+  if (v && typeof v === "object") return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, plainForBackup(x)]));
+  return v;
+}
+document.getElementById("btnBackup").onclick = () => {
+  const note = document.getElementById("backupNote");
+  if (!membersLoaded || !recordsLoaded) { note.textContent = "データを読み込み中です。少し待ってからもう一度押してください。"; return; }
+  const now = new Date();
+  const two = (n) => String(n).padStart(2, "0");
+  const stamp = `${now.getFullYear()}${two(now.getMonth() + 1)}${two(now.getDate())}-${two(now.getHours())}${two(now.getMinutes())}`;
+  const data = plainForBackup({
+    app: "janken-memory", version: 1, exportedAt: now.toISOString(),
+    currentSeason, seasons, members,
+    records: records.map(({ id, ...rest }) => ({ id, ...rest })),
+    session,
+  });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }));
+  a.download = `janken-backup-${stamp}.json`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+  note.textContent = `バックアップを保存しました（メンバー${Object.keys(members).length}人・対戦${records.length}件）`;
+};
+
+// ---------- 実績 ----------
+// Achievements are worked out from the records of every season, and whatever has been earned
+// is then saved on the member's own record (`ach`: key -> {date, n}), shared by everyone. Once
+// saved it stays, even if the record it came from is later edited or deleted. Guests earn
+// none. `repeat` ones can be earned again and again and show how many times.
+const ACHS = [
+  ["参加", [
+    ["g1", "🎉", "初陣", "はじめて対戦に参加する"],
+    ["g10", "🎮", "常連", "通算10戦に参加する"],
+    ["g50", "🎖️", "ベテラン", "通算50戦に参加する"],
+    ["g100", "🏛️", "鉄人", "通算100戦に参加する"],
+  ]],
+  ["勝負強さ", [
+    ["safe5", "🛡️", "鉄壁", "5戦連続で負けなし（参加した対戦で数えます）", true],
+    ["safe10", "🏰", "難攻不落", "10戦連続で負けなし", true],
+    ["safe15", "👑", "無敵", "15戦連続で負けなし", true],
+    ["first-out", "🚀", "一抜け", "3人以上の対戦で、1投目に自分だけ抜ける", true],
+    ["escape", "😮‍💨", "土壇場の生還", "3人以上の対戦で、先に抜けた人がいる中、最後の決着まで残って負けを免れる", true],
+    ["plus10", "💰", "貯金王", "通算の貯金が+10ptに届く"],
+  ]],
+  ["負けの記録", [
+    ["l1", "🌱", "初黒星", "はじめて負ける"],
+    ["l10", "🍩", "おごり役", "通算10敗"],
+    ["l25", "🍱", "大盤振る舞い", "通算25敗"],
+    ["lose3", "🌧️", "泥沼", "3連敗する（参加した対戦で数えます）", true],
+    ["lose5", "⛈️", "底なし沼", "5連敗する", true],
+    ["oneshot", "⚡", "瞬殺", "3人以上の対戦で、1投で負けが決まる", true],
+    ["day2", "😱", "厄日", "同じ日に2回負ける", true],
+    ["minus10", "🕳️", "借金王", "通算の借金が−10ptに届く"],
+  ]],
+  ["名勝負", [
+    ["long5", "🥊", "死闘", "5投以上もつれた対戦で負ける", true],
+    ["draw3", "🤝", "あいこ地獄", "あいこが3回以上出た対戦に参加する", true],
+    ["all3", "🎨", "三種の神器", "1つの対戦でグー・チョキ・パーを全部出す", true],
+    ["same4", "🗿", "頑固一徹", "1つの対戦で同じ手を4回続けて出す", true],
+  ]],
+  ["男気", [
+    ["otoko1", "🔥", "男気", "男気モードではじめて負ける（じゃんけんに勝ち抜く）"],
+    ["otoko5", "🦁", "男の中の男", "男気モードで通算5敗"],
+  ]],
+  ["おごりメニュー", [
+    ["memo-br", "🍨", "バスキン・ロビンソン", "メモに「バスキン・ロビンソン」と書かれた対戦で負ける", true],
+    ["memo-coffee", "☕", "CoffeeToGo", "メモに「CoffeeToGo」と書かれた対戦で負ける", true],
+  ]],
+  ["お金", [
+    ["pay1000", "💸", "太っ腹", "1回の負けで1,000円以上おごる", true],
+    ["paid5000", "🏦", "スポンサー", "おごった合計が5,000円に届く"],
+    ["got3000", "🍰", "ごちそうさま", "おごってもらった合計が3,000円に届く"],
+  ]],
+];
+const ACH_LIST = ACHS.flatMap(([, list]) => list);
+
+// Achievements given to the loser of a round whose memo carries a keyword. Matching ignores
+// spaces, the "・" in the middle, upper/lower case and full-width/half-width differences.
+function memoKey(text) { return String(text || "").normalize("NFKC").toLowerCase().replace(/[\s・･.\-_]/g, ""); }
+const MEMO_ACHS = [["memo-br", "バスキン・ロビンソン"], ["memo-coffee", "CoffeeToGo"]].map(([key, word]) => [key, memoKey(word)]);
+
+function computeAchievements() {
+  const got = {};   // achievement key -> {memberId: {date, n}}, in the order they were earned
+  const award = (key, id, date) => {
+    if (isGuest(id) || !members[id]) return;
+    const e = ((got[key] ||= {})[id] ||= { date, n: 0 });
+    e.n++;
+  };
+  const once = (key, id, date, cond) => { if (cond && !got[key]?.[id]) award(key, id, date); };
+  const st = {};
+  const dayLoss = {};
+  for (const r of records) {
+    if (!r.loserId || !r.participantIds) continue;
+    const date = r.dateISO;
+    const n = r.participantIds.length;
+    const ps = (r.pitches || []).filter((p) => pitchThrowers(p).length >= 2);
+    const amts = recordAmounts(r);
+    const draws = ps.filter((p) => new Set(pitchThrowers(p).map(([, h]) => h)).size !== 2).length;
+    for (const id of r.participantIds) {
+      const s = (st[id] ||= { games: 0, losses: 0, safeRun: 0, loseRun: 0, points: 0, paid: 0, received: 0, otoko: 0 });
+      const lost = id === r.loserId;
+      s.games++;
+      if ([1, 10, 50, 100].includes(s.games)) award("g" + s.games, id, date);
+      if (lost) {
+        s.losses++; s.loseRun++; s.safeRun = 0; s.points -= n - 1;
+        if ([1, 10, 25].includes(s.losses)) award("l" + s.losses, id, date);
+        if (s.loseRun === 3 || s.loseRun === 5) award("lose" + s.loseRun, id, date);
+        if (ps.length === 1 && n >= 3) award("oneshot", id, date);
+        if (ps.length >= 5) award("long5", id, date);
+        if (r.mode === "男気モード") {
+          s.otoko++;
+          if (s.otoko === 1 || s.otoko === 5) award("otoko" + s.otoko, id, date);
+        }
+        const k = `${date}|${id}`;
+        dayLoss[k] = (dayLoss[k] || 0) + 1;
+        if (dayLoss[k] === 2) award("day2", id, date);
+      } else {
+        s.safeRun++; s.loseRun = 0; s.points += 1;
+        if ([5, 10, 15].includes(s.safeRun)) award("safe" + s.safeRun, id, date);
+        // went into the final face-off (someone had already got out) and wasn't the one who lost it
+        const last = ps[ps.length - 1];
+        if (n >= 3 && last && pitchThrowers(last).length < n && realHand(last.hands?.[id])) award("escape", id, date);
+      }
+      once("plus10", id, date, s.points >= 10);
+      once("minus10", id, date, s.points <= -10);
+      const thrown = (r.pitches || []).map((p) => realHand(p.hands?.[id])).filter(Boolean);
+      if (new Set(thrown).size === 3) award("all3", id, date);
+      let run = 0, maxRun = 0;
+      thrown.forEach((h, i) => { run = i && h === thrown[i - 1] ? run + 1 : 1; maxRun = Math.max(maxRun, run); });
+      if (maxRun >= 4) award("same4", id, date);
+      if (draws >= 3 && thrown.length) award("draw3", id, date);
+      const amt = amts[id] || 0;
+      if (amt < 0) {
+        s.paid -= amt;
+        if (-amt >= 1000) award("pay1000", id, date);
+        once("paid5000", id, date, s.paid >= 5000);
+      } else if (amt > 0) {
+        s.received += amt;
+        once("got3000", id, date, s.received >= 3000);
+      }
+    }
+    const memo = memoKey(r.memo);
+    if (memo) MEMO_ACHS.forEach(([key, word]) => { if (memo.includes(word)) award(key, r.loserId, date); });
+    // 一抜け: the first pitch splits three or more throwers and exactly one of them gets out
+    const first = ps[0] && pitchThrowers(ps[0]).filter(([id]) => r.participantIds.includes(id));
+    if (first && first.length >= 3) {
+      const types = new Set(first.map(([, h]) => h));
+      if (types.size === 2) {
+        const [t1, t2] = [...types];
+        const winType = BEATS[t1] === t2 ? t1 : t2;
+        const stayType = r.mode === "男気モード" ? winType : (winType === t1 ? t2 : t1);
+        const gone = first.filter(([, h]) => h !== stayType);
+        if (gone.length === 1) award("first-out", gone[0][0], date);
+      }
+    }
+  }
+  return got;
+}
+
+function savedAchievements(computed) {
+  // what is saved on the member records, topped up with anything just worked out that has
+  // not been saved yet; a saved date is kept, and a saved count never goes down
+  const got = {};
+  for (const id of memberOrder) {
+    for (const [key, e] of Object.entries(members[id]?.ach || {})) {
+      if (e && e.date) (got[key] ||= {})[id] = { date: e.date, n: e.n || 1 };
+    }
+  }
+  for (const [key, who] of Object.entries(computed)) {
+    for (const [id, e] of Object.entries(who)) {
+      const have = (got[key] ||= {})[id];
+      if (!have) got[key][id] = { ...e };
+      else if (e.n > have.n) have.n = e.n;
+    }
+  }
+  return got;
+}
+
+let achSaving = false;
+async function saveAchievements(got) {
+  // write whatever the member records don't hold yet; every device does this, and writing
+  // the same thing twice is harmless
+  if (achSaving) return;
+  achSaving = true;
+  try {
+    const perMember = {};
+    for (const [key, who] of Object.entries(got)) {
+      for (const [id, e] of Object.entries(who)) {
+        const have = members[id]?.ach?.[key];
+        if (!have || !have.date || (have.n || 1) < e.n) (perMember[id] ||= {})[`ach.${key}`] = { date: e.date, n: e.n };
+      }
+    }
+    for (const [id, fields] of Object.entries(perMember)) await updateDoc(doc(membersCol, id), fields);
+  } catch (e) {
+    console.error(e);
+  } finally {
+    achSaving = false;
+  }
+}
+
+let achFocus = "all";      // "all" or the member whose achievements are shown
+let achKnown = null;       // what had been earned at the last look, to announce new ones
+function achOpen() { return location.hash === "#achievements"; }
+function showPage() {
+  const on = achOpen();
+  document.getElementById("achPage").style.display = on ? "" : "none";
+  document.getElementById("mainPage").style.display = on ? "none" : "";
+  if (on) { renderAchievements(); window.scrollTo(0, 0); }
+}
+window.addEventListener("hashchange", showPage);
+// the link sits in the 記録・称号 heading, which folds its section when tapped: keep the tap
+// (and the Enter key) on the link from folding it
+document.getElementById("btnAch").onclick = (e) => { e.preventDefault(); e.stopPropagation(); location.hash = "#achievements"; showPage(); };
+document.getElementById("btnAch").addEventListener("keydown", (e) => e.stopPropagation());
+document.getElementById("btnAchBack").onclick = () => { location.hash = ""; showPage(); };
+showPage();
+
+function renderAchievements() {
+  if (!membersLoaded || !recordsLoaded) return;
+  const got = savedAchievements(computeAchievements());
+  saveAchievements(got);
+  // announce what was newly earned since the last look (not on the first load)
+  const now = new Set(Object.entries(got).flatMap(([key, who]) => Object.keys(who).map((id) => `${key}|${id}`)));
+  if (achKnown) {
+    const fresh = [...now].filter((k) => !achKnown.has(k)).slice(0, 3);
+    fresh.forEach((k, i) => {
+      const [key, id] = k.split("|");
+      const a = ACH_LIST.find((x) => x[0] === key);
+      setTimeout(() => showToast(`🏆 ${members[id]?.name ?? id}さんが「${a[2]}」を達成`), i * 1700);
+    });
+  }
+  achKnown = now;
+  const people = memberOrder.filter((id) => members[id] && !isGuest(id));
+  const count = (id) => ACH_LIST.filter(([key]) => got[key]?.[id]).length;
+  const btn = document.getElementById("btnAch");
+  btn.textContent = (myId && members[myId] && !isGuest(myId) ? `🏆 実績 ${count(myId)}/${ACH_LIST.length}` : "🏆 実績") + " →";
+  if (!achOpen()) return;
+  const el = document.getElementById("achievements");
+  if (achFocus !== "all" && !people.includes(achFocus)) achFocus = "all";
+  const day = (iso) => `${Number(iso.slice(0, 4))}/${Number(iso.slice(5, 7))}/${Number(iso.slice(8, 10))}`;
+  const chips = [["all", "全員"], ...people.map((id) => [id, `${members[id].name} ${count(id)}/${ACH_LIST.length}`])]
+    .map(([val, label]) => `<button class="btn ghost small ${val === achFocus ? "on" : ""}" data-ach="${val}">${esc(label)}</button>`).join("");
+  const groups = ACHS.map(([group, list]) => {
+    const rows = list.map(([key, icon, name, desc, repeat]) => {
+      const who = got[key] || {};
+      const ids = Object.keys(who).filter((id) => achFocus === "all" || id === achFocus)
+        .sort((a, b) => (who[a].date < who[b].date ? -1 : who[a].date > who[b].date ? 1 : 0));
+      const names = ids.map((id) => `<span class="ach-name"><span class="dot" style="background:${colorVar(id)}"></span>${esc(members[id].name)}<span class="when">${day(who[id].date)}${repeat && who[id].n > 1 ? `（初回）・計${who[id].n}回` : ""}</span></span>`).join("");
+      return `<div class="ach-row ${ids.length ? "" : "locked"}">
+        <span class="icon">${icon}</span>
+        <div class="body"><div class="t">${name}${repeat ? '<span class="rep">何度でも</span>' : ""}</div><div class="d">${desc}</div>
+          <div class="ach-names">${names || `<span class="none">${achFocus === "all" ? "まだ誰も達成していません" : "未達成"}</span>`}</div></div>
+      </div>`;
+    }).join("");
+    return `<div class="ach-group">${group}</div><div class="card">${rows}</div>`;
+  }).join("");
+  el.innerHTML = `<div class="sec-note" style="white-space:normal;margin:0 0 10px">達成すると、その実績に名前と達成日が保存され、全員の画面に出ます。一度保存された実績は、後で対戦記録を直しても消えません（ゲストは対象外）。名前を選ぶと、その人の達成状況だけを見られます。</div>
+    <div class="matchup-chips">${chips}</div>${groups}`;
+  el.querySelectorAll("[data-ach]").forEach((b) => {
+    b.onclick = () => { achFocus = b.dataset.ach; renderAchievements(); };
   });
 }

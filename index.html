@@ -286,6 +286,22 @@
   .title-row .who{font-size:14px;font-weight:700;overflow-wrap:anywhere;}
   .title-row .val{font-family:"JetBrains Mono",monospace;font-size:19px;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap;}
   .title-row .unit{font-size:11px;font-weight:500;margin-left:2px;}
+  .ach-link{font-size:12.5px;font-weight:700;color:var(--accent-strong);text-decoration:underline;text-underline-offset:3px;white-space:nowrap;padding:4px 0 4px 8px;}
+  .ach-title{font-weight:900;font-size:clamp(24px,6.5vw,30px);margin:0 0 12px;letter-spacing:.01em;}
+  .ach-group{font-size:12px;font-weight:700;color:var(--muted);letter-spacing:.08em;margin:22px 2px 8px;}
+  .ach-row{display:flex;gap:12px;padding:13px 16px;border-top:1px solid var(--line);}
+  .ach-row:first-child{border-top:none;}
+  .ach-row .icon{font-size:22px;width:28px;text-align:center;flex:none;}
+  .ach-row .body{flex:1;min-width:0;}
+  .ach-row .t{font-size:14.5px;font-weight:700;display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+  .ach-row .rep{font-size:10px;font-weight:700;color:var(--accent-strong);background:var(--accent-soft);padding:1px 8px;border-radius:999px;}
+  .ach-row .d{font-size:12px;color:var(--ink-soft);margin-top:2px;}
+  .ach-row.locked .icon{filter:grayscale(1);opacity:.4;}
+  .ach-row.locked .t{color:var(--muted);}
+  .ach-names{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;}
+  .ach-name{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;font-weight:700;background:var(--surface-2);border-radius:999px;padding:3px 10px;}
+  .ach-name .when{font-family:"JetBrains Mono",monospace;font-size:10.5px;font-weight:500;color:var(--muted);}
+  .ach-names .none{font-size:12px;color:var(--muted);}
   .empty{padding:20px;text-align:center;color:var(--muted);font-size:13px;}
   footer{margin-top:44px;padding-top:20px;border-top:1px solid var(--line);font-size:11.5px;color:var(--muted);text-align:center;}
 </style>
@@ -315,6 +331,7 @@
         <div class="note">登録できました。あなたのIDです</div>
         <div class="code" id="codeRevealVal"></div>
         <div class="note">次回からこのIDでログインできます</div>
+        <button id="btnJoinDone" class="btn" style="width:100%;margin-top:12px">はじめる</button>
       </div>
     </div>
     <div class="viewonly">
@@ -325,7 +342,7 @@
   </div>
 </div>
 
-<div class="wrap">
+<div class="wrap" id="mainPage">
   <header class="top">
     <p class="eyebrow">みんなのじゃんけん記録</p>
     <h1 class="title">ジャンケン帳</h1>
@@ -396,7 +413,7 @@
   </section>
 
   <section id="sec-titles">
-    <div class="sec-head"><h2>記録・称号</h2><span class="sec-note"></span></div>
+    <div class="sec-head"><h2>記録・称号</h2><a class="ach-link" id="btnAch" href="#achievements">🏆 実績</a></div>
     <div class="card" id="titles"></div>
   </section>
 
@@ -405,9 +422,27 @@
     <div class="records" id="records"></div>
   </section>
 
+  <section id="sec-backup">
+    <div class="sec-head"><h2>バックアップ</h2><span class="sec-note">全データをファイルに保存</span></div>
+    <div class="card pad">
+      <div class="sec-note" style="white-space:normal;margin-bottom:10px">メンバー・対戦記録・シーズンのすべてを、1つのファイル（JSON）としてこの端末に保存します。</div>
+      <button class="btn ghost small" id="btnBackup" type="button">バックアップを保存する</button>
+      <div class="sec-note" id="backupNote" style="white-space:normal;margin-top:8px"></div>
+    </div>
+  </section>
+
   <footer>Firebase上で動作する共有ジャンケン帳 ・ データはこの友達グループだけで共有されます</footer>
 </div>
 
-<script type="module" src="./app.js?v=44"></script>
+<div class="wrap" id="achPage" style="display:none">
+  <header class="top">
+    <p class="eyebrow">みんなのじゃんけん記録</p>
+    <h1 class="ach-title">🏆 実績</h1>
+    <button class="btn ghost small" id="btnAchBack" type="button">← ジャンケン帳に戻る</button>
+  </header>
+  <div id="achievements" style="margin-top:22px"><div class="empty">読み込み中…</div></div>
+</div>
+
+<script type="module" src="./app.js?v=49"></script>
 </body>
 </html>
