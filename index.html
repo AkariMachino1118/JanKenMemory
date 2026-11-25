@@ -286,6 +286,7 @@
   .title-row .who{font-size:14px;font-weight:700;overflow-wrap:anywhere;}
   .title-row .val{font-family:"JetBrains Mono",monospace;font-size:19px;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap;}
   .title-row .unit{font-size:11px;font-weight:500;margin-left:2px;}
+  .ach-link{font-size:12.5px;font-weight:700;color:var(--accent-strong);text-decoration:underline;text-underline-offset:3px;white-space:nowrap;padding:4px 0 4px 8px;}
   .ach-title{font-weight:900;font-size:clamp(24px,6.5vw,30px);margin:0 0 12px;letter-spacing:.01em;}
   .ach-group{font-size:12px;font-weight:700;color:var(--muted);letter-spacing:.08em;margin:22px 2px 8px;}
   .ach-row{display:flex;gap:12px;padding:13px 16px;border-top:1px solid var(--line);}
@@ -346,7 +347,6 @@
     <p class="eyebrow">みんなのじゃんけん記録</p>
     <h1 class="title">ジャンケン帳</h1>
     <div class="whoami" id="whoami"></div>
-    <button class="btn ghost small" id="btnAch" type="button" style="margin-top:12px">🏆 実績</button>
   </header>
 
   <section id="sec-season">
@@ -413,7 +413,7 @@
   </section>
 
   <section id="sec-titles">
-    <div class="sec-head"><h2>記録・称号</h2><span class="sec-note"></span></div>
+    <div class="sec-head"><h2>記録・称号</h2><a class="ach-link" id="btnAch" href="#achievements">🏆 実績</a></div>
     <div class="card" id="titles"></div>
   </section>
 
@@ -443,6 +443,6 @@
   <div id="achievements" style="margin-top:22px"><div class="empty">読み込み中…</div></div>
 </div>
 
-<script type="module" src="./app.js?v=48"></script>
+<script type="module" src="./app.js?v=49"></script>
 </body>
 </html>

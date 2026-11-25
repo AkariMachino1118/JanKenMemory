@@ -2167,7 +2167,10 @@ function showPage() {
   if (on) { renderAchievements(); window.scrollTo(0, 0); }
 }
 window.addEventListener("hashchange", showPage);
-document.getElementById("btnAch").onclick = () => { location.hash = "#achievements"; showPage(); };
+// the link sits in the 記録・称号 heading, which folds its section when tapped: keep the tap
+// (and the Enter key) on the link from folding it
+document.getElementById("btnAch").onclick = (e) => { e.preventDefault(); e.stopPropagation(); location.hash = "#achievements"; showPage(); };
+document.getElementById("btnAch").addEventListener("keydown", (e) => e.stopPropagation());
 document.getElementById("btnAchBack").onclick = () => { location.hash = ""; showPage(); };
 showPage();
 
@@ -2189,7 +2192,7 @@ function renderAchievements() {
   const people = memberOrder.filter((id) => members[id] && !isGuest(id));
   const count = (id) => ACH_LIST.filter(([key]) => got[key]?.[id]).length;
   const btn = document.getElementById("btnAch");
-  btn.textContent = myId && members[myId] && !isGuest(myId) ? `🏆 実績 ${count(myId)}/${ACH_LIST.length}` : "🏆 実績";
+  btn.textContent = (myId && members[myId] && !isGuest(myId) ? `🏆 実績 ${count(myId)}/${ACH_LIST.length}` : "🏆 実績") + " →";
   if (!achOpen()) return;
   const el = document.getElementById("achievements");
   if (achFocus !== "all" && !people.includes(achFocus)) achFocus = "all";
