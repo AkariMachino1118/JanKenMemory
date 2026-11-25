@@ -2007,6 +2007,8 @@ const ACHS = [
     ["l25", "🍱", "大盤振る舞い", "通算25敗"],
     ["lose3", "🌧️", "泥沼", "3連敗する（参加した対戦で数えます）", true],
     ["lose5", "⛈️", "底なし沼", "5連敗する", true],
+    ["lose10", "🌪️", "奈落", "10連敗する", true],
+    ["lose15", "👹", "厄神", "15連敗する", true],
     ["oneshot", "⚡", "瞬殺", "3人以上の対戦で、1投で負けが決まる", true],
     ["day2", "😱", "厄日", "同じ日に2回負ける", true],
     ["minus10", "🕳️", "借金王", "通算の借金が−10ptに届く"],
@@ -2070,7 +2072,7 @@ function computeAchievements() {
       if (lost) {
         s.losses++; s.loseRun++; s.safeRun = 0; s.points -= n - 1;
         if ([1, 10, 25].includes(s.losses)) award("l" + s.losses, id, date);
-        if (s.loseRun === 3 || s.loseRun === 5) award("lose" + s.loseRun, id, date);
+        if ([3, 5, 10, 15].includes(s.loseRun)) award("lose" + s.loseRun, id, date);
         if (ps.length === 1 && n >= 3) award("oneshot", id, date);
         if (ps.length >= 5) award("long5", id, date);
         if (r.mode === "男気モード") {
