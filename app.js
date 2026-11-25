@@ -2027,8 +2027,15 @@ const ACHS = [
   ]],
   ["お金", [
     ["pay1000", "💸", "太っ腹", "1回の負けで1,000円以上おごる", true],
+    ["pay3000", "🍾", "豪遊", "1回の負けで3,000円以上おごる", true],
+    ["pay5000", "🛢️", "石油王", "1回の負けで5,000円以上おごる", true],
     ["paid5000", "🏦", "スポンサー", "おごった合計が5,000円に届く"],
+    ["paid10000", "🎩", "パトロン", "おごった合計が10,000円に届く"],
+    ["paid30000", "👛", "歩く財布", "おごった合計が30,000円に届く"],
+    ["paid50000", "🏯", "大富豪", "おごった合計が50,000円に届く"],
     ["got3000", "🍰", "ごちそうさま", "おごってもらった合計が3,000円に届く"],
+    ["got10000", "🍣", "ごっつぁんです", "おごってもらった合計が10,000円に届く"],
+    ["got30000", "🦞", "食い倒れ", "おごってもらった合計が30,000円に届く"],
   ]],
 ];
 const ACH_LIST = ACHS.flatMap(([, list]) => list);
@@ -2091,11 +2098,11 @@ function computeAchievements() {
       const amt = amts[id] || 0;
       if (amt < 0) {
         s.paid -= amt;
-        if (-amt >= 1000) award("pay1000", id, date);
-        once("paid5000", id, date, s.paid >= 5000);
+        [1000, 3000, 5000].forEach((v) => { if (-amt >= v) award("pay" + v, id, date); });
+        [5000, 10000, 30000, 50000].forEach((v) => once("paid" + v, id, date, s.paid >= v));
       } else if (amt > 0) {
         s.received += amt;
-        once("got3000", id, date, s.received >= 3000);
+        [3000, 10000, 30000].forEach((v) => once("got" + v, id, date, s.received >= v));
       }
     }
     const memo = memoKey(r.memo);
