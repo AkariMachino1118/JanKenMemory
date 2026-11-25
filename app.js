@@ -2228,7 +2228,10 @@ function renderAchievements() {
       return Object.keys(who).filter((id) => members[id] && (achFocus === "all" || id === achFocus))
         .sort((a, b) => (who[a].date < who[b].date ? -1 : who[a].date > who[b].date ? 1 : 0));
     };
-    const tiles = list.map(([key, icon, name]) => `<button type="button" class="ach-tile ${idsOf(key).length ? "" : "locked"} ${key === achDetail ? "on" : ""}" data-achkey="${key}" aria-label="${name}" aria-expanded="${key === achDetail}">${icon}</button>`).join("");
+    // an icon is in colour only once the logged-in member has earned it themselves; what
+    // others have earned still shows as names when the icon is opened
+    const mine = (key) => !!(myId && got[key]?.[myId]);
+    const tiles = list.map(([key, icon, name]) => `<button type="button" class="ach-tile ${mine(key) ? "" : "locked"} ${key === achDetail ? "on" : ""}" data-achkey="${key}" aria-label="${name}" aria-expanded="${key === achDetail}">${icon}</button>`).join("");
     const open = list.find(([key]) => key === achDetail);
     let detail = "";
     if (open) {
@@ -2236,15 +2239,16 @@ function renderAchievements() {
       const who = got[key] || {};
       const ids = idsOf(key);
       const names = ids.map((id) => `<span class="ach-name"><span class="dot" style="background:${colorVar(id)}"></span>${esc(members[id].name)}<span class="when">${day(who[id].date)}${repeat && who[id].n > 1 ? `（初回）・計${who[id].n}回` : ""}</span></span>`).join("");
-      detail = `<div class="ach-row ${ids.length ? "" : "locked"}">
+      detail = `<div class="ach-row ${mine(key) ? "" : "locked"}">
         <span class="icon">${icon}</span>
         <div class="body"><div class="t">${name}${repeat ? '<span class="rep">何度でも</span>' : ""}</div><div class="d">${desc}</div>
+          ${myId && members[myId] && !isGuest(myId) ? `<div class="ach-mine ${mine(key) ? "done" : ""}">${mine(key) ? "✓ あなたは達成済み" : "あなたは未達成"}</div>` : ""}
           <div class="ach-names">${names || `<span class="none">${achFocus === "all" ? "まだ誰も達成していません" : "未達成"}</span>`}</div></div>
       </div>`;
     }
     return `<div class="ach-group">${group}</div><div class="card"><div class="ach-grid">${tiles}</div>${detail}</div>`;
   }).join("");
-  el.innerHTML = `<div class="sec-note" style="white-space:normal;margin:0 0 10px">アイコンをタップすると、実績の名前・条件・達成した人が開きます（薄いアイコンはまだ誰も達成していない実績）。達成すると名前と達成日が保存され、全員の画面に出ます。一度保存された実績は、後で対戦記録を直しても消えません（ゲストは対象外）。名前を選ぶと、その人の達成状況だけを見られます。</div>
+  el.innerHTML = `<div class="sec-note" style="white-space:normal;margin:0 0 10px">アイコンをタップすると、実績の名前・条件・達成した人が開きます。色が付くのは自分が達成した実績だけで、ほかの人の達成は開くと名前で見られます。達成すると名前と達成日が保存され、全員の画面に出ます。一度保存された実績は、後で対戦記録を直しても消えません（ゲストは対象外）。名前を選ぶと、その人の達成状況だけを見られます。</div>
     <div class="matchup-chips">${chips}</div>${groups}`;
   el.querySelectorAll("[data-ach]").forEach((b) => {
     b.onclick = () => { achFocus = b.dataset.ach; renderAchievements(); };
