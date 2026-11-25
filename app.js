@@ -2005,6 +2005,7 @@ const ACHS = [
     ["l1", "🌱", "初黒星", "はじめて負ける"],
     ["l10", "🍩", "おごり役", "通算10敗"],
     ["l25", "🍱", "大盤振る舞い", "通算25敗"],
+    ["l100", "🪦", "百敗伝説", "通算100敗"],
     ["lose3", "🌧️", "泥沼", "3連敗する（参加した対戦で数えます）", true],
     ["lose5", "⛈️", "底なし沼", "5連敗する", true],
     ["lose10", "🌪️", "奈落", "10連敗する", true],
@@ -2077,7 +2078,7 @@ function computeAchievements() {
       if ([1, 10, 50, 100].includes(s.games)) award("g" + s.games, id, date);
       if (lost) {
         s.losses++; s.loseRun++; s.safeRun = 0; s.points -= n - 1;
-        if ([1, 10, 25].includes(s.losses)) award("l" + s.losses, id, date);
+        if ([1, 10, 25, 100].includes(s.losses)) award("l" + s.losses, id, date);
         if ([3, 5, 10, 15].includes(s.loseRun)) award("lose" + s.loseRun, id, date);
         if (ps.length === 1 && n >= 3) award("oneshot", id, date);
         if (ps.length >= 5) award("long5", id, date);
